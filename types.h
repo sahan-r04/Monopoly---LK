@@ -5,7 +5,7 @@
 #define NUM_PLAYERS                          4
 #define STARTING_CASH                    30000
 #define MAX_ROUNDS                         500
-#define GO_BONUS                          2000
+#define PASSING_GO_PAY                    2000
 #define BAIL_AMOUNT                        300
 #define MAX_NAME_LEN                        32
 #define AUCTION_INCREMENT                  250

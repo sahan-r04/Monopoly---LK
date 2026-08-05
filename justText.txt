@@ -1,27 +1,108 @@
-.squareIndex = 1,
-        .name = "Pettah",
-        .type = SQUARE_PROPERTY,
-        .group = GROUP_BROWN,
-        
-        .purchasePrice = 1500,
-        .baseRent = 100,
-        .houseCost = 500,
-        .hotelCost = 2000,
-        .mortgageValue = 750,
+/* ============================================================
+   players.c — this is where the STRATEGY decisions actually live
+   ============================================================ */
 
-        .currentValue = 1500,
-        .currentRent = 100,
+// Decision 1: should this player borrow at all, and how much?
+int decideLoanAmount(GameState *gs, int playerIndex) {
 
-        .ownerId = -1,
-        .isMortgaged = 0,
-        .isLoanLocked = 0,
+    // Rule-LK 1: only one active loan allowed at a time
+    if (gs->players[playerIndex].hasLoan == 1) {
+        return 0;
+    }
 
-        .numHouses = 0,
-        .hasHotel = 0,
+    int maxLoan = calculateMaxLoan(gs, playerIndex);   // from finance.c
 
-        .buildingCondition = 100,
-        .propertyAge = 0,
-        .isDamaged = 0,
+    // check the player's strategy one at a time, and decide accordingly
+    if (gs->players[playerIndex].strategy == STRATEGY_AGGRESSIVE) {
+        return maxLoan / 2;
+    }
 
-        .insurancePolicy = INSURANCE_NONE,
-        .insuranceRoundsLeft = 0,
+    if (gs->players[playerIndex].strategy == STRATEGY_CONSERVATIVE) {
+        return 0;   // "avoids loans unless bankruptcy is imminent"
+    }
+
+    if (gs->players[playerIndex].strategy == STRATEGY_RISK_TAKER) {
+        return maxLoan;   // "always borrows the maximum loan permitted"
+    }
+
+    if (gs->players[playerIndex].strategy == STRATEGY_OPPORTUNISTIC) {
+        return maxLoan / 3;
+    }
+
+    return 0;   // fallback, should never actually reach here
+}
+
+
+// Decision 2: given that amount, WHICH properties get pledged as collateral?
+void decideLoanCollateral(GameState *gs, int playerIndex, int amount, int collateralChoice[BOARD_SIZE]) {
+
+    // Step 1: start with nothing selected
+    int i = 0;
+    while (i < BOARD_SIZE) {
+        collateralChoice[i] = 0;
+        i = i + 1;
+    }
+
+    // Step 2: work out how much MORTGAGE VALUE we need to pledge.
+    // Rule-LK 2 says maxLoan = 75% of pledged mortgage value, so we
+    // need to pledge enough that 75% of it covers "amount".
+    int mortgageValueNeeded = (amount * 100) / 75;
+
+    // Step 3: walk the board and pick properties one at a time,
+    // stopping as soon as we've pledged enough
+    int pledgedSoFar = 0;
+    i = 0;
+
+    while (i < BOARD_SIZE) {
+
+        // stop early once we've pledged enough — no need to check
+        // the remaining squares
+        if (pledgedSoFar >= mortgageValueNeeded) {
+            break;
+        }
+
+        Square thisSquare = gs->board[i];
+
+        // ask the same three questions as before, one at a time
+        int isOwnedByPlayer = 0;
+        if (thisSquare.ownerId == playerIndex) {
+            isOwnedByPlayer = 1;
+        }
+
+        int isMortgaged = 0;
+        if (thisSquare.isMortgaged == 1) {
+            isMortgaged = 1;
+        }
+
+        int isLoanLocked = 0;
+        if (thisSquare.isLoanLocked == 1) {
+            isLoanLocked = 1;
+        }
+
+        // only pledge it if owned by this player, AND not mortgaged,
+        // AND not already locked by a different loan
+        if (isOwnedByPlayer == 1) {
+            if (isMortgaged == 0) {
+                if (isLoanLocked == 0) {
+                    collateralChoice[i] = 1;
+                    pledgedSoFar = pledgedSoFar + thisSquare.mortgageValue;
+                }
+            }
+        }
+
+        i = i + 1;
+    }
+}
+
+
+/* ============================================================
+   game.c — wires the two decisions together, then calls finance.c
+   ============================================================ */
+
+int amount = decideLoanAmount(gs, playerIndex);        // players.c decides HOW MUCH
+
+if (amount > 0) {
+    int collateralChoice[BOARD_SIZE];
+    decideLoanCollateral(gs, playerIndex, amount, collateralChoice);   // players.c decides WHICH squares
+    takeLoan(gs, playerIndex, amount, collateralChoice);                // finance.c just DOES it
+}

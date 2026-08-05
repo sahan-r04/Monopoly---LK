@@ -5,14 +5,14 @@
 #include "types.h"
 
 //---- Rule-LK 2 ----//
-int calculateMaxLoan(GameState *gs, int playerIndex){
+int calculateMaxLoan(GameState *gamestate, int playerIndex){
 
     int totalMortgageValue = 0;
 
     int i = 0;
 
     while (i < BOARD_SIZE){
-        Square landedSquare = gs -> board[i];
+        Square landedSquare = gamestate -> board[i];
 
         int isOwnedByThisPlayer = 0;
         if(landedSquare.ownerId == playerIndex){
@@ -43,3 +43,73 @@ int calculateMaxLoan(GameState *gs, int playerIndex){
 }
 
 //---- Rule-LK 3 ----//
+void takeLoan(GameState *gamestate, int playerIndex, int amount, int collateralChoice[BOARD_SIZE]){
+
+    // 1) give player the loan money
+
+    gamestate -> players[playerIndex].cash = gamestate -> players[playerIndex].cash + amount;
+
+    // 2) Record the loan details on the player
+
+    gamestate -> players[playerIndex].hasLoan = 1;
+    gamestate ->players[playerIndex].loanAmount = amount;
+    gamestate -> players[playerIndex].loanInterestRate = gamestate->economy.baseInterestRate;
+    gamestate -> players[playerIndex].loanRoundsLeft = LOAN_DURATION_ROUNDS;
+
+    /* 3) Lock up only the squares or properties told to lock by the player(players.c),
+    according to the collateralChoice[] */
+
+    int i = 0;
+    while (i < BOARD_SIZE) {
+
+        if (collateralChoice[i] == 1){
+            gamestate -> board[i].isLoanLocked = 1;
+            gamestate -> players[playerIndex].loanCollateral[i] = 1;
+        }
+        i = i + 1;
+    }
+}
+
+void repayLoan(GameState *gamestate, int playerIndex, int amount){
+
+    // 1) If this player doesn't have a loan.
+    if (gamestate -> players[playerIndex].hasLoan == 0){
+        return;
+    }
+
+    // 2) Capping the repayment.
+
+    int currentCash = gamestate -> players[playerIndex].cash;
+    int currentLoanAmount = gamestate -> players[playerIndex].loanAmount;
+
+    if (amount > currentCash) {
+        amount = currentCash;
+    }
+    if (amount > currentLoanAmount) {
+        amount = currentLoanAmount;
+    }
+
+    // 3) Deduct the (capped) repayment from the player cash & reduce the loan balance.
+
+    gamestate->players[playerIndex].cash = currentCash - amount;
+    gamestate->players[playerIndex].loanAmount = currentLoanAmount - amount;
+
+    // 4) Only if the loan is fully paid off, the collateral will be unlocked.
+
+    if (gamestate->players[playerIndex].loanAmount == 0) {
+
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> players[playerIndex].loanCollateral[i] == 1) {
+                gamestate -> board[i].isLoanLocked = 0;
+                gamestate -> players[playerIndex].loanCollateral[i] = 0;
+            }
+            i = i + 1;
+        }
+
+        gamestate -> players[playerIndex].hasLoan = 0;
+        gamestate -> players[playerIndex].loanAmount = 0;
+        gamestate -> players[playerIndex].loanInterestRate = 0;
+        gamestate -> players[playerIndex].loanRoundsLeft = 0;
+    }
+}

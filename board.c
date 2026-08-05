@@ -920,11 +920,11 @@ int movePlayer(Player *p, int diceTotal) {
     int oldPosition = p->position;
     int newPosition = (oldPosition + diceTotal) % BOARD_SIZE;
 
-    int passedGo = (newPosition < oldPosition); // wrapped around the board = passed GO
+    int passedGo = (newPosition < oldPosition);
     p->position = newPosition;
 
     if (passedGo) {
-        p->cash += GO_BONUS;
+        p -> cash =  p -> cash + PASSING_GO_PAY; // Add cash for passing GO
     }
     return passedGo;
 }
