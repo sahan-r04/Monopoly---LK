@@ -1,0 +1,1028 @@
+# MONOPOLY-LK — Beginner's Roadmap & Code Structure Guide
+
+This guide takes your ideasheet, fills in the gaps against the actual assignment spec, and gives
+you a concrete, file-by-file build plan with real struct/function examples you can start typing
+straight away.
+
+---
+
+## 0. What Your Ideasheet Was Missing
+
+Before the roadmap, here's an honest diff between your notes and the actual spec. Fixing these
+now saves you from a big refactor at week 3.
+
+| Area | What your ideasheet had | What the spec actually needs |
+|---|---|---|
+| `square` struct | name, type, group, price, baseRent, houseCost, hotelCost | ✅ correct core, but also needs: **mortgage value, current owner, mortgage status, insurance status, number of buildings, hotel flag, building condition %, property age, damaged flag, current (dynamic) value** — these live *on the property*, not floating around separately |
+| `Property` (separate struct) | name + type array | Not needed as a separate struct — merge into `Square`. A property **is** a square. Don't duplicate data in two places. |
+| Loans | Not modelled at all | Need loan fields **on the player** (amount, interest rate, rounds left) since each player has at most ONE active loan, plus a way to mark which squares are "loan locked" collateral |
+| Insurance | Only "insurance status" on property | Need policy **type** (Basic/Comprehensive/Business Interruption), premium already paid, and **rounds remaining until expiry** |
+| Auctions | Not modelled | Need a simple auction function — doesn't need a permanent struct, just local variables in `game.c` |
+| National Event Cards (20 of them) | Not modelled | Need a deck: array of 20 card structs + an index that cycles (draw from top, push to bottom) |
+| Regional Development Cards (12 of them) | Not modelled | Same idea — array + "currently active card" state in `Economy` |
+| Government Regulations | Not modelled | Same idea — array + "currently active regulation" state in `Economy` |
+| Boom/Decline market state | Not modelled | `Economy` needs to remember **which group** is booming/declining and **for how many more rounds** |
+| Turn order | "using srand()" | You still need an **array storing the actual turn order** (player indices), not just who rolled highest |
+| Net worth formula | Not written down | Rule 15 gives you the exact formula — write it as one function, `calculateNetWorth()`, used both for round summaries and picking the winner |
+| RNG | "use srand()" repeated everywhere | Call `srand()` **exactly once**, in `main.c`, at the very start. Never call it again. |
+| Global variables | Not addressed | Assignment explicitly says avoid globals — every function should receive the data it needs via **pointers** (parameters), not read from a global |
+
+---
+
+## 1. The Big Picture — How the 7 Files Relate
+
+```
+main.c
+  └─ calls game.c (the "engine")
+        ├─ uses board.c     (board layout + movement)
+        ├─ uses players.c   (what should this player do?)
+        ├─ uses finance.c   (loans, insurance, rent, net worth)
+        └─ uses events.c    (random cards, inflation, regulations)
+
+types.h  ← included by EVERY .c file (it just has struct/enum definitions, no logic)
+```
+
+**The one rule that keeps this simple:** everything lives inside one big struct called
+`GameState`. Every function you write takes a `GameState *gs` (a pointer to it) as its first
+argument. That's it — that's how you avoid global variables. You're not passing 10 separate
+arrays around, you're passing one pointer to "the whole game."
+
+**Data structure choice for this whole project: plain fixed-size arrays, everywhere.**
+- 40 board squares → `Square board[40]`
+- 4 players → `Player players[4]`
+- 20 National Event Cards → `NationalEventCard nationalDeck[20]`
+- 12 Regional Development Cards → `RegionalCard regionalDeck[12]`
+- 8 Government Regulations → `GovRegulation regulationDeck[8]`
+
+No linked lists, no `malloc`, no arrays of pointers. Every "collection" in this game has a
+**known, fixed maximum size**, so a plain array plus a `for` loop is all you need. This also
+matches the spec's advice to avoid dynamic memory unless justified — for this project, it
+isn't. "Drawing a card" and "cycling the deck" both become a single integer index into a fixed
+array (shown in Section 6) — nothing fancier is needed.
+
+```c
+// This lives in types.h — the ONE thing every function will receive a pointer to.
+typedef struct {
+    Square board[40];
+    Player players[4];
+    Economy economy;
+} GameState;
+```
+
+From here on, almost every function signature in this document starts with `GameState *gs`.
+
+---
+
+## 2. Suggested Build Order (do NOT write all 7 files at once)
+
+1. **types.h** — write every struct/enum first. Nothing compiles without this, but it's just
+   definitions, so it's fast to write and free of bugs.
+2. **main.c** (skeleton only) — just enough to `#include "types.h"`, declare a `GameState gs;`,
+   and print "Hello Monopoly". Compile with `gcc *.c -o monopoly` to prove your setup works.
+3. **board.c** — hardcode the 40 squares (Table 1 in the spec) and write `movePlayer()`. Test by
+   printing the board.
+4. **finance.c** — loans, insurance, rent, tax, net worth. These are "pure calculation" functions,
+   easiest to unit-test in isolation before players start calling them.
+5. **events.c** — the three card decks + inflation/market booms. Depends on `finance.c` existing
+   (events change prices which finance.c reads).
+6. **players.c** — the 4 strategies. This is the most "if/else heavy" file — do it after the
+   other systems exist so there's something to decide *about*.
+7. **game.c** — wire everything together into the round loop. This is always last because it
+   calls everything else.
+8. **main.c** (finish) — seed `srand()`, call `initGame()`, loop `playRound()` up to 500 times or
+   until 1 player remains, print winner.
+
+---
+
+## 3. `types.h` — All Data Definitions
+
+### Instructions (beginner-friendly)
+- This file has **zero logic** — no function bodies, only `typedef struct`, `typedef enum`, and
+  `#define` constants. Think of it as the "vocabulary" every other file speaks.
+- Always wrap it in a **header guard** so it's never accidentally included twice.
+- Every other `.c` file starts with `#include "types.h"`.
+- Use `enum` instead of plain numbers for anything with a fixed set of options (strategy type,
+  square type, etc.) — it makes your `switch` statements self-documenting later.
+
+### Constants
+
+```c
+#ifndef TYPES_H
+#define TYPES_H
+
+#define BOARD_SIZE      40
+#define NUM_PLAYERS      4
+#define STARTING_CASH 30000
+#define MAX_ROUNDS     500
+#define GO_BONUS       2000
+#define BAIL_AMOUNT     300
+#define MAX_NAME_LEN     32
+```
+
+### Enums
+
+```c
+// What kind of square is this?
+typedef enum {
+    SQ_START,
+    SQ_PROPERTY,
+    SQ_RAILWAY,
+    SQ_UTILITY,
+    SQ_TAX,
+    SQ_EVENT,
+    SQ_JAIL,
+    SQ_FREE_PARKING,
+    SQ_GO_TO_JAIL,
+    SQ_INSURANCE,
+    SQ_BANK
+} SquareType;
+
+// Which colour group (only meaningful when type == SQ_PROPERTY)
+typedef enum {
+    GROUP_NONE,       // non-property squares use this
+    GROUP_BROWN,
+    GROUP_LIGHT_BLUE,
+    GROUP_PINK,
+    GROUP_ORANGE,
+    GROUP_RED,
+    GROUP_YELLOW,
+    GROUP_GREEN,
+    GROUP_DARK_BLUE
+} PropertyGroup;
+
+// The 4 player strategies (Section 3 of the spec)
+typedef enum {
+    STRATEGY_AGGRESSIVE,
+    STRATEGY_CONSERVATIVE,
+    STRATEGY_RISK_TAKER,
+    STRATEGY_OPPORTUNISTIC
+} StrategyType;
+
+// -1 means "no policy" — use this instead of a raw -1 in your code
+typedef enum {
+    INSURANCE_NONE = -1,
+    INSURANCE_BASIC,
+    INSURANCE_COMPREHENSIVE,
+    INSURANCE_BUSINESS_INTERRUPTION
+} InsuranceType;
+```
+
+### The `Square` struct (merges your `square` + `Property` ideas into one)
+
+```c
+typedef struct {
+    int squareIndex;              // 0-39, position on board (matches Table 1)
+    char name[MAX_NAME_LEN];      // e.g. "Galle Fort"
+    SquareType type;
+    PropertyGroup group;          // GROUP_NONE if not a property
+
+    // Static (base) values — set once at game start
+    int purchasePrice;
+    int mortgageValue;
+    int baseRent;
+    int houseCost;
+    int hotelCost;
+
+    // Dynamic values — change due to inflation/boom/decline/depreciation
+    int currentValue;             // market value right now
+    int currentRent;              // rent right now (after all modifiers)
+
+    // Ownership
+    int ownerId;                  // -1 = bank, 0-3 = player index
+    int isMortgaged;              // 0 or 1
+    int isLoanLocked;             // 1 = pledged as loan collateral (can't sell/trade/mortgage)
+
+    // Development (Rule 8, 9, 10)
+    int numHouses;                // 0-4
+    int hasHotel;                 // 0 or 1 (never both houses AND hotel > 0)
+
+    // Condition & age (Section 2.4, 2.8)
+    int buildingCondition;        // 100 down to 0 (Table 3)
+    int propertyAge;              // rounds since built/last renovated
+    int isDamaged;                 // 1 if a disaster hit it and it's unrepaired
+
+    // Insurance (Section 1.2, 2.2)
+    InsuranceType insurancePolicy;
+    int insuranceRoundsLeft;       // counts down from 20
+} Square;
+```
+
+### The `Player` struct
+
+```c
+typedef struct {
+    char name[MAX_NAME_LEN];
+    StrategyType strategy;
+
+    int cash;
+    int position;                 // 0-39
+    int inJail;
+    int jailTurns;                // counts 0..3 while in jail
+    int isBankrupt;
+
+    // Each player may have at most ONE active loan (Section 2.1)
+    int hasLoan;                  // 0 or 1
+    int loanAmount;               // outstanding balance (principal + accrued interest)
+    int loanInterestRate;         // percentage, locked in when loan was taken
+    int loanRoundsLeft;           // counts down from 20
+    int loanCollateral[BOARD_SIZE]; // 1 if board[i] is pledged to this loan
+} Player;
+```
+
+### The `Economy` struct (tracks every "currently active" temporary effect)
+
+```c
+// Reused everywhere something is "on for N more rounds" — a market boom,
+// a regulation, a regional card. One shape, three uses.
+typedef struct {
+    int isActive;
+    int effectId;              // which card/regulation index; -1 if not applicable
+    PropertyGroup targetGroup; // GROUP_NONE if this effect isn't group-specific
+    int roundsRemaining;
+} ActiveEffect;
+
+typedef struct {
+    int round;
+    int inflationRate;            // e.g. 5 means +5% (Rule-LK 12)
+    int baseInterestRate;         // current loan interest rate for NEW loans (Table 9)
+
+    // National Event Card deck — the ONLY one that actually cycles (spec says
+    // drawn cards return to the bottom), so it's the only one needing an index.
+    int nationalCardNextIndex;    // 0..19, wraps back to 0
+
+    // Regional cards, gov regulations, and market booms/declines are all
+    // freshly "drawn"/"selected randomly" each time — no deck, no index.
+    ActiveEffect regionalCard;    // .effectId -> regionalDeck[12]
+    ActiveEffect govRegulation;   // .effectId -> regulationDeck[8]
+    ActiveEffect marketBoom;      // .targetGroup = boosted group
+    ActiveEffect marketDecline;   // .targetGroup = declining group
+
+    // Rule-LK 33: remembers the last picks so reviewPropertyMarket() can
+    // avoid repeating the same group on back-to-back reviews
+    PropertyGroup lastBoomGroup;
+    PropertyGroup lastDeclineGroup;
+} Economy;
+```
+
+### The top-level `GameState` struct
+
+```c
+typedef struct {
+    Square board[BOARD_SIZE];
+    Player players[NUM_PLAYERS];
+    Economy economy;
+} GameState;
+
+#endif // TYPES_H
+```
+
+---
+
+## 4. `board.c` — Board Setup & Movement
+
+### Instructions
+- This file answers two questions only: **"what does the board look like?"** and **"how does a
+  player move around it?"**
+- Hardcode Table 1 from the spec (all 40 squares) inside `initBoard()`. Yes, it's repetitive —
+  that's fine, it's meant to be.
+- Keep `movePlayer()` "dumb" — it should only update `position` and hand out GO money. It should
+  **not** decide what happens when you land (that belongs in `game.c`, which calls board.c then
+  finance.c/players.c as needed).
+
+### Functions
+
+```c
+// Fills in all 40 squares with their fixed spec values. Call this once, at game start.
+void initBoard(Square board[BOARD_SIZE]) {
+    // Example for a couple of squares — repeat this pattern for all 40 (Table 1 + Appendix B)
+    board[0] = (Square){ .squareIndex = 0, .name = "GO", .type = SQ_START, .group = GROUP_NONE };
+
+    board[1] = (Square){
+        .squareIndex = 1, .name = "Pettah", .type = SQ_PROPERTY, .group = GROUP_BROWN,
+        .purchasePrice = 1500, .mortgageValue = 750, .baseRent = 50,   // pick sensible baseRent
+        .houseCost = 500, .hotelCost = 2000,
+        .currentValue = 1500, .currentRent = 50,
+        .ownerId = -1, .insurancePolicy = INSURANCE_NONE
+    };
+
+    board[38] = (Square){ .squareIndex = 38, .name = "Bank of Ceylon", .type = SQ_BANK, .group = GROUP_NONE };
+
+    // ... continue for squares 2-37, 39 using Table 1 and Appendix B for the numbers
+}
+
+// Moves a player forward by diceTotal, wrapping around the board (Rule 3.3 / Rule 4).
+// Returns 1 if the player passed or landed on GO (so the caller knows to print a message),
+// 0 otherwise.
+int movePlayer(Player *p, int diceTotal) {
+    int oldPosition = p->position;
+    int newPosition = (oldPosition + diceTotal) % BOARD_SIZE;
+
+    int passedGo = (newPosition < oldPosition); // wrapped around the board = passed GO
+    p->position = newPosition;
+
+    if (passedGo) {
+        p->cash += GO_BONUS;
+    }
+    return passedGo;
+}
+
+// Sends a player straight to jail (Rule 12) — does NOT collect GO money even if they'd pass it.
+void sendToJail(Player *p) {
+    p->position = 10;   // Jail square index
+    p->inJail = 1;
+    p->jailTurns = 0;
+}
+```
+
+---
+
+## 5. `finance.c` — Loans, Insurance, Depreciation, Tax, Net Worth
+
+### Instructions
+- This is your "banking math" file. Every function here should be **pure calculation** — given
+  the current state, compute a number or apply a well-defined change. Avoid decision-making here
+  (e.g. "should I take a loan?" belongs in `players.c`; "here's what happens if you DO take a
+  loan" belongs here).
+- Use `int` for all money — the spec requires this (no floats/doubles for currency).
+- Write `calculateNetWorth()` early — you'll reuse it constantly for round summaries and to pick
+  the winner.
+
+### Functions
+
+```c
+// Rule-LK 2: max loan = 75% of total mortgage value of all UNMORTGAGED, unpledged properties.
+int calculateMaxLoan(GameState *gs, int playerIndex) {
+    Player *p = &gs->players[playerIndex];
+    int totalMortgageValue = 0;
+
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        Square *sq = &gs->board[i];
+        if (sq->ownerId == playerIndex && !sq->isMortgaged && !sq->isLoanLocked) {
+            totalMortgageValue += sq->mortgageValue;
+        }
+    }
+    return (totalMortgageValue * 75) / 100;
+}
+
+// Rule-LK 3: grants the loan, locks the collateral properties.
+void takeLoan(GameState *gs, int playerIndex, int amount) {
+    Player *p = &gs->players[playerIndex];
+    p->cash += amount;
+    p->hasLoan = 1;
+    p->loanAmount = amount;
+    p->loanInterestRate = gs->economy.baseInterestRate;
+    p->loanRoundsLeft = 20;
+
+    // Lock every unmortgaged, unlocked property owned by this player as collateral
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        Square *sq = &gs->board[i];
+        if (sq->ownerId == playerIndex && !sq->isMortgaged && !sq->isLoanLocked) {
+            sq->isLoanLocked = 1;
+            p->loanCollateral[i] = 1;
+        }
+    }
+}
+
+// Rule-LK 5: partial or full repayment.
+void repayLoan(GameState *gs, int playerIndex, int amount) {
+    Player *p = &gs->players[playerIndex];
+    if (amount > p->cash) amount = p->cash;    // can't pay more than you have
+    if (amount > p->loanAmount) amount = p->loanAmount;
+
+    p->cash -= amount;
+    p->loanAmount -= amount;
+
+    if (p->loanAmount == 0) {
+        p->hasLoan = 0;
+        // Unlock collateral
+        for (int i = 0; i < BOARD_SIZE; i++) {
+            if (p->loanCollateral[i]) {
+                gs->board[i].isLoanLocked = 0;
+                p->loanCollateral[i] = 0;
+            }
+        }
+    }
+}
+
+// Rule-LK 4: called once at the end of every complete round for every player with a loan.
+void applyLoanInterest(GameState *gs) {
+    for (int i = 0; i < NUM_PLAYERS; i++) {
+        Player *p = &gs->players[i];
+        if (p->hasLoan) {
+            int interest = (p->loanAmount * p->loanInterestRate) / 100;
+            p->loanAmount += interest;
+            p->loanRoundsLeft--;
+            if (p->loanRoundsLeft <= 0) {
+                foreclose(gs, i); // Rule-LK 6/7 — you write this: transfer collateral to bank, clear debt
+            }
+        }
+    }
+}
+
+// Section 1.2: buys/renews an insurance policy on one property.
+void buyInsurance(GameState *gs, int playerIndex, int squareIndex, InsuranceType policy) {
+    Square *sq = &gs->board[squareIndex];
+    Player *p = &gs->players[playerIndex];
+
+    int premiumPercent = (policy == INSURANCE_BASIC) ? 5
+                        : (policy == INSURANCE_COMPREHENSIVE) ? 10 : 15;
+    int premium = (sq->currentValue * premiumPercent) / 100;
+
+    if (p->cash >= premium) {
+        p->cash -= premium;
+        sq->insurancePolicy = policy;
+        sq->insuranceRoundsLeft = 20;
+    }
+}
+
+// Rule 7: pay rent when landing on an owned, unmortgaged property.
+void payRent(GameState *gs, int payerIndex, int squareIndex) {
+    Square *sq = &gs->board[squareIndex];
+    if (sq->ownerId == -1 || sq->isMortgaged) return; // no rent due
+
+    int rent = sq->currentRent; // assume already recalculated with condition/booms/etc.
+    Player *payer = &gs->players[payerIndex];
+    Player *owner = &gs->players[sq->ownerId];
+
+    if (rent > payer->cash) rent = payer->cash; // simplistic — you may trigger bankruptcy instead
+    payer->cash -= rent;
+    owner->cash += rent;
+}
+
+// Rule 15: Net Worth = Cash + Property Value + Building Value + Railway Value
+//                     + Utility Value + Insurance Claims Receivable
+//                     - Outstanding Loans - Accrued Interest - Taxes Due
+int calculateNetWorth(GameState *gs, int playerIndex) {
+    Player *p = &gs->players[playerIndex];
+    int netWorth = p->cash;
+
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        Square *sq = &gs->board[i];
+        if (sq->ownerId != playerIndex) continue;
+
+        netWorth += sq->currentValue;                     // property/railway/utility value
+        netWorth += sq->numHouses * sq->houseCost;         // building value
+        if (sq->hasHotel) netWorth += sq->hotelCost;
+    }
+
+    if (p->hasLoan) {
+        netWorth -= p->loanAmount; // outstanding loan + accrued interest (already combined)
+    }
+    return netWorth;
+}
+```
+
+---
+
+## 6. `events.c` — Random Events, Inflation, Regulations, Market Booms
+
+### Instructions
+- Store each deck (National Event Cards, Regional Development Cards, Government Regulations) as
+  a **fixed-size array of small structs**, defined right here at the top of the file (not in
+  `types.h` — they're only used internally by this file).
+- Use `rand() % N` to pick indices — but remember `srand()` is only called once, in `main.c`.
+- Every function here takes `GameState *gs` and modifies it directly through the pointer — that's
+  how the rest of the game "sees" the effects.
+
+### Card decks — fixed arrays + one index counter (the simplest way to "cycle a deck")
+
+The spec says a drawn card goes "to the bottom of the deck." You do **not** need to physically
+move data around in the array to achieve this. If you just keep one integer that says "which
+slot do I draw next" and increment it (wrapping back to 0 at the end), you get the exact same
+result: card 0 is drawn, then next time it's card 1, and so on — by the time you loop back to
+card 0, every other card has already come up in between. That's "returned to the bottom" without
+any shifting code at all.
+
+```c
+typedef struct {
+    char name[40];
+    int cashBonus;          // 0 if no direct cash effect
+    int rentMultiplierPct;  // 100 = normal, 200 = double, etc. 0 = not applicable
+} NationalEventCard;
+
+// Appendix A — all 20 cards, as a fixed array. (Showing 3 as an example — fill in the rest.)
+static NationalEventCard nationalDeck[20] = {
+    { "Tourism Hype",       0,    200 }, // hotels earn double rent for 5 rounds
+    { "Tax Amnesty",     2000,      0 }, // each player receives LKR 2,000
+    { "Government Grant", 5000,     0 }, // random player receives LKR 5,000
+    // ... 17 more cards from Appendix A
+};
+
+// Draws the "next" card, applies its effect, then advances the index for next time.
+void drawNationalEventCard(GameState *gs, int playerIndex) {
+    int idx = gs->economy.nationalCardNextIndex;
+    NationalEventCard card = nationalDeck[idx];
+
+    gs->players[playerIndex].cash += card.cashBonus;
+    // ...apply rentMultiplierPct, damage effects, etc. depending on the card
+
+    printf("Economic Event\n\n%s\n\n", card.name);
+
+    // Advance to the next slot, wrapping back to 0 after the last card (index 19)
+    gs->economy.nationalCardNextIndex = (idx + 1) % 20;
+}
+```
+
+The Regional Development deck (Section 2.10) and Government Regulation deck (Section 2.7)
+follow the **exact same pattern** — a fixed array + one "next index" counter. The only
+difference is these two stay "active" for a number of rounds rather than firing once instantly:
+
+```c
+typedef struct {
+    char name[50];
+    int valuePercentChange;   // e.g. +25 means property values in the affected group rise 25%
+} RegionalCard;
+
+// Table 4 — 12 cards, fixed array. (Showing 2 as an example — fill in the rest.)
+static RegionalCard regionalDeck[12] = {
+    { "Southern Tourism Boom", 40 }, // Galle Fort, Unawatuna, Hikkaduwa rent +40%
+    { "Port City Expansion",   25 }, // Pettah, Maradana, Colombo Fort Station value +25%
+    // ... 10 more cards from Table 4
+};
+
+// Called every 15 rounds (Section 2.10). Draws next card, marks it active for 15 rounds.
+void triggerRegionalDevelopmentCard(GameState *gs) {
+    int idx = gs->economy.regionalCardNextIndex;
+
+    gs->economy.regionalCardActive = idx;
+    gs->economy.regionalCardRoundsLeft = 15;
+    // ...apply regionalDeck[idx].valuePercentChange to the relevant squares here
+
+    printf("Regional Development Card\n\n%s\n", regionalDeck[idx].name);
+
+    gs->economy.regionalCardNextIndex = (idx + 1) % 12;
+}
+```
+
+Government Regulations (Rule-LK 24, Section 2.7) work identically — a fixed
+`GovRegulation regulationDeck[8]` array plus `govRegulationNextIndex`, drawn every 20 rounds and
+marked active with `govRegulationRoundsLeft = 20`. Copy the `triggerRegionalDevelopmentCard`
+pattern above and just rename things — that's the whole trick.
+
+### Inflation & market booms
+
+```c
+// Rule-LK 12/13/14 — called every 10 rounds.
+void updateInflation(GameState *gs) {
+    int possibleRates[] = { -3, 0, 2, 5, 8, 12 };
+    gs->economy.inflationRate = possibleRates[rand() % 6];
+
+    // Apply to every property's current value (Rule-LK 14 formula)
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        Square *sq = &gs->board[i];
+        if (sq->type != SQ_PROPERTY) continue;
+        sq->currentValue = sq->currentValue * (100 + gs->economy.inflationRate) / 100;
+    }
+}
+
+// Rule-LK 30/31/32 — called every 10 rounds, picks a boom group and a decline group.
+// All 8 real property groups live in a small fixed array so we can pick a random INDEX
+// into it (0..7) instead of doing enum arithmetic — easier to read and debug.
+void updatePropertyMarket(GameState *gs) {
+    PropertyGroup allGroups[8] = {
+        GROUP_BROWN, GROUP_LIGHT_BLUE, GROUP_PINK, GROUP_ORANGE,
+        GROUP_RED, GROUP_YELLOW, GROUP_GREEN, GROUP_DARK_BLUE
+    };
+
+    PropertyGroup boom    = allGroups[rand() % 8];
+    PropertyGroup decline = allGroups[rand() % 8];
+    while (decline == boom) {
+        decline = allGroups[rand() % 8]; // must differ (Rule-LK 30)
+    }
+
+    gs->economy.boomGroup = boom;
+    gs->economy.boomRoundsLeft = 10;
+    gs->economy.declineGroup = decline;
+    gs->economy.declineRoundsLeft = 10;
+
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        Square *sq = &gs->board[i];
+        if (sq->group == boom)    sq->currentValue = sq->currentValue * 120 / 100; // +20%
+        if (sq->group == decline) sq->currentValue = sq->currentValue *  85 / 100; // -15%
+    }
+}
+```
+
+---
+
+## 7. `players.c` — Strategy Decision Logic (Section 3)
+
+### Instructions
+- One function per **decision type** (buy? build? insure? loan?), and inside each function a
+  `switch (player->strategy)` that branches into 4 small helper functions — one per strategy.
+- Keep each strategy's helper function **short**. If a helper is getting long, that's a sign you
+  should split the decision into two separate questions.
+- These functions should **return an answer** (yes/no, or an amount) rather than directly
+  mutating state — let `game.c` or `finance.c` actually perform the action. This keeps
+  "deciding" and "doing" cleanly separated.
+
+### Helper: does this player own a full colour group? (needed for Rule 8 — monopolies)
+
+You don't need a separate array mapping groups to squares — the `board` array already has a
+`group` field on every square, so you can just loop over it and count.
+
+```c
+// Returns 1 if playerIndex owns EVERY property in 'group' (a monopoly), 0 otherwise.
+int ownsFullGroup(GameState *gs, int playerIndex, PropertyGroup group) {
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        Square *sq = &gs->board[i];
+        if (sq->group == group && sq->ownerId != playerIndex) {
+            return 0; // found one property in this group NOT owned by the player
+        }
+    }
+    return 1; // looped through the whole board array, every match was owned by the player
+}
+```
+
+This one function is what `decideConstruction()` (below) and `game.c`'s "6. Construct buildings
+if eligible" step will both call before allowing any house/hotel purchase.
+
+### Functions
+
+```c
+// Should this player buy the property they just landed on?
+// Returns 1 (yes) or 0 (no).
+int decidePurchase(GameState *gs, int playerIndex, int squareIndex) {
+    Player *p = &gs->players[playerIndex];
+    Square *sq = &gs->board[squareIndex];
+
+    switch (p->strategy) {
+        case STRATEGY_AGGRESSIVE:
+            // "Always purchases if funds remain to pay at least one future rent"
+            return (p->cash - sq->purchasePrice) >= sq->baseRent;
+
+        case STRATEGY_CONSERVATIVE:
+            // "Purchases only if at least 50% of current cash remains after purchase"
+            return (p->cash - sq->purchasePrice) >= (p->cash / 2);
+
+        case STRATEGY_RISK_TAKER:
+            // "Purchases every available property whenever legally possible"
+            return (sq->purchasePrice <= p->cash);
+
+        case STRATEGY_OPPORTUNISTIC:
+            // "Purchases only when projected appreciation exceeds construction costs"
+            return (sq->currentValue > sq->purchasePrice) && (p->cash >= sq->purchasePrice);
+    }
+    return 0;
+}
+
+// How much should this player bid in an auction, given the current highest bid?
+// Returns the bid amount, or -1 to withdraw (Rule-LK 21).
+int decideAuctionBid(GameState *gs, int playerIndex, int squareIndex, int currentBid) {
+    Player *p = &gs->players[playerIndex];
+    Square *sq = &gs->board[squareIndex];
+    int nextBid = currentBid + 250; // Rule-LK 20 minimum increment
+
+    switch (p->strategy) {
+        case STRATEGY_AGGRESSIVE:
+            // Bids aggressively until 120% of market value
+            return (nextBid <= sq->currentValue * 120 / 100 && nextBid <= p->cash) ? nextBid : -1;
+
+        case STRATEGY_CONSERVATIVE:
+            // Only bids below market value
+            return (nextBid < sq->currentValue && nextBid <= p->cash) ? nextBid : -1;
+
+        case STRATEGY_RISK_TAKER:
+            // Bids until cash is exhausted
+            return (nextBid <= p->cash) ? nextBid : -1;
+
+        case STRATEGY_OPPORTUNISTIC:
+            // Prefers discounted auction purchases only
+            return (nextBid < sq->currentValue * 80 / 100 && nextBid <= p->cash) ? nextBid : -1;
+    }
+    return -1;
+}
+
+// Should this player take out a loan right now, and for how much?
+// Returns the amount to borrow, or 0 for "don't borrow."
+int decideLoanAmount(GameState *gs, int playerIndex) {
+    Player *p = &gs->players[playerIndex];
+    int maxLoan = calculateMaxLoan(gs, playerIndex); // from finance.c
+
+    switch (p->strategy) {
+        case STRATEGY_AGGRESSIVE:
+            return maxLoan / 2; // "whenever additional funds increase projected rental income"
+        case STRATEGY_CONSERVATIVE:
+            return 0; // "avoids loans unless bankruptcy is imminent" — handle that case separately
+        case STRATEGY_RISK_TAKER:
+            return maxLoan; // "always borrows the maximum loan permitted"
+        case STRATEGY_OPPORTUNISTIC:
+            return maxLoan / 3; // only if projected return exceeds borrowing cost
+    }
+    return 0;
+}
+```
+
+---
+
+## 8. `game.c` — The Engine (Turn Sequence, Rounds, Auctions, Win Condition)
+
+### Instructions
+- This file **calls** functions from the other files — it should have very little raw
+  calculation of its own. If you find yourself doing math here, it probably belongs in
+  `finance.c`.
+- Follow Rule 3's turn sequence exactly and in order — it's numbered for a reason.
+- Keep `playRound()` as the single "outer loop" function `main.c` calls repeatedly.
+
+### Functions
+
+```c
+// Rule 1: sets up 4 players with starting values. Call once at game start.
+void initPlayers(GameState *gs) {
+    const char *names[4] = { "Aggressive Investor", "Conservative Banker", "Risk Taker", "Opportunistic Trader" };
+    StrategyType strategies[4] = { STRATEGY_AGGRESSIVE, STRATEGY_CONSERVATIVE, STRATEGY_RISK_TAKER, STRATEGY_OPPORTUNISTIC };
+
+    for (int i = 0; i < NUM_PLAYERS; i++) {
+        Player *p = &gs->players[i];
+        strncpy(p->name, names[i], MAX_NAME_LEN);
+        p->strategy = strategies[i];
+        p->cash = STARTING_CASH;
+        p->position = 0;
+        p->inJail = 0;
+        p->isBankrupt = 0;
+        p->hasLoan = 0;
+    }
+}
+
+// Rule 2: each player rolls 2 dice, highest goes first. Fills 'order' with player indices.
+void determineTurnOrder(GameState *gs, int order[NUM_PLAYERS]) {
+    int rolls[NUM_PLAYERS];
+    for (int i = 0; i < NUM_PLAYERS; i++) {
+        rolls[i] = (rand() % 6 + 1) + (rand() % 6 + 1);
+        printf("%s rolls %d.\n", gs->players[i].name, rolls[i]);
+    }
+
+    // Simple selection sort by roll value, descending, into 'order'
+    for (int i = 0; i < NUM_PLAYERS; i++) order[i] = i;
+    for (int i = 0; i < NUM_PLAYERS - 1; i++) {
+        for (int j = i + 1; j < NUM_PLAYERS; j++) {
+            if (rolls[order[j]] > rolls[order[i]]) {
+                int tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+            }
+        }
+    }
+    // NOTE: doesn't yet handle re-rolling ties (Rule 2) — add that check yourself
+}
+
+// Rule 3: the full sequence for ONE player's turn.
+void playTurn(GameState *gs, int playerIndex) {
+    Player *p = &gs->players[playerIndex];
+    if (p->isBankrupt) return;
+
+    // 1. Resolve outstanding penalties (jail check)
+    if (p->inJail) {
+        // ... handle bail/doubles/3-turn rule (Rule 13) — you write this
+        return; // skip rest of turn if still jailed
+    }
+
+    // 2. Roll two dice
+    int d1 = rand() % 6 + 1, d2 = rand() % 6 + 1;
+    int diceTotal = d1 + d2;
+    printf("%s rolled %d.\n", p->name, diceTotal);
+
+    // 3. Move clockwise
+    int passedGo = movePlayer(p, diceTotal); // from board.c
+    if (passedGo) {
+        printf("%s passed GO.\nCollected LKR %d.\nCurrent Balance : LKR %d.\n", p->name, GO_BONUS, p->cash);
+    }
+
+    // 4. Resolve landing action (dispatch based on square type)
+    Square *sq = &gs->board[p->position];
+    switch (sq->type) {
+        case SQ_PROPERTY:
+        case SQ_RAILWAY:
+        case SQ_UTILITY:
+            // 5. Purchase property if eligible
+            if (sq->ownerId == -1) {
+                if (decidePurchase(gs, playerIndex, p->position)) { // players.c
+                    p->cash -= sq->purchasePrice;
+                    sq->ownerId = playerIndex;
+                    printf("%s purchased %s for LKR %d.\n", p->name, sq->name, sq->purchasePrice);
+                } else {
+                    runAuction(gs, p->position); // declined -> auction (Rule 5)
+                }
+            } else if (sq->ownerId != playerIndex) {
+                payRent(gs, playerIndex, p->position); // finance.c
+            }
+            break;
+
+        case SQ_TAX:
+            // Rule 11
+            // collectTax(gs, playerIndex, p->position); // write in finance.c
+            break;
+
+        case SQ_GO_TO_JAIL:
+            sendToJail(p); // board.c
+            break;
+
+        case SQ_EVENT:
+            drawNationalEventCard(gs, playerIndex); // events.c
+            break;
+
+        case SQ_INSURANCE:
+        case SQ_BANK:
+            // Player may choose an action here — call players.c decision functions
+            break;
+
+        default:
+            break; // SQ_START, SQ_FREE_PARKING, SQ_JAIL (just visiting) — nothing to do
+    }
+
+    // 6. Construct buildings if eligible — call players.c + apply in finance.c
+    // 7. Complete financial transactions (loan repay, insurance, etc.)
+    // 8. End turn — nothing more to do, function returns
+}
+
+// Rule 6, Rule-LK 19-23: runs an auction for one property among all solvent players.
+void runAuction(GameState *gs, int squareIndex) {
+    Square *sq = &gs->board[squareIndex];
+    int currentBid = sq->currentValue / 2;   // opening bid = 50% of market value
+    int highestBidder = -1;
+    int stillIn[NUM_PLAYERS] = { 1, 1, 1, 1 };
+
+    printf("Auction Started.\n\nProperty :\n%s\n\nOpening Bid :\nLKR %d.\n\n", sq->name, currentBid);
+
+    int activeBidders = NUM_PLAYERS;
+    while (activeBidders > 1) {
+        for (int i = 0; i < NUM_PLAYERS; i++) {
+            if (!stillIn[i] || gs->players[i].isBankrupt) continue;
+
+            int bid = decideAuctionBid(gs, i, squareIndex, currentBid); // players.c
+            if (bid > currentBid) {
+                currentBid = bid;
+                highestBidder = i;
+                printf("%s bids LKR %d.\n", gs->players[i].name, bid);
+            } else {
+                stillIn[i] = 0;
+                activeBidders--;
+                printf("%s withdraws.\n", gs->players[i].name);
+            }
+        }
+    }
+
+    if (highestBidder != -1) {
+        gs->players[highestBidder].cash -= currentBid;
+        sq->ownerId = highestBidder;
+        printf("%s wins the auction.\n", gs->players[highestBidder].name);
+    }
+    // else: Rule-LK 23 — ownership remains with the Bank (ownerId stays -1)
+}
+
+// Called once at the very end of every round — interest, depreciation, expiries, market ticks.
+void endOfRoundProcessing(GameState *gs) {
+    gs->economy.round++;
+    applyLoanInterest(gs);        // finance.c
+
+    if (gs->economy.round % 10 == 0) {
+        updateInflation(gs);        // events.c
+        updatePropertyMarket(gs);   // events.c
+    }
+    if (gs->economy.round % 15 == 0) {
+        // trigger Regional Development Card — events.c
+    }
+    if (gs->economy.round % 20 == 0) {
+        // apply Government Regulation — events.c
+    }
+    // depreciateProperties(gs);   // finance.c — Rule-LK 15/16
+    printRoundSummary(gs);
+}
+
+// Counts remaining solvent players; returns 1 if the game should stop.
+int isGameOver(GameState *gs) {
+    int solventCount = 0;
+    for (int i = 0; i < NUM_PLAYERS; i++) {
+        if (!gs->players[i].isBankrupt) solventCount++;
+    }
+    return (solventCount <= 1) || (gs->economy.round >= MAX_ROUNDS);
+}
+
+// Rule 15: picks the player with the highest net worth.
+int findWinner(GameState *gs) {
+    int winner = 0;
+    int bestNetWorth = calculateNetWorth(gs, 0); // finance.c
+
+    for (int i = 1; i < NUM_PLAYERS; i++) {
+        if (gs->players[i].isBankrupt) continue;
+        int nw = calculateNetWorth(gs, i);
+        if (nw > bestNetWorth) {
+            bestNetWorth = nw;
+            winner = i;
+        }
+    }
+    return winner;
+}
+```
+
+---
+
+## 9. `main.c` — Entry Point
+
+### Instructions
+- This file should be **short** — under 40 lines is normal. All the real work happens in
+  `game.c`.
+- Call `srand()` exactly once, at the top of `main()`, before anything else random happens.
+- The main loop is just: initialize → repeat playTurn/endOfRound → check game over → print
+  winner.
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include "types.h"
+
+// Forward declarations (or put these in a game.h if you prefer)
+void initBoard(Square board[BOARD_SIZE]);
+void initPlayers(GameState *gs);
+void determineTurnOrder(GameState *gs, int order[NUM_PLAYERS]);
+void playTurn(GameState *gs, int playerIndex);
+void endOfRoundProcessing(GameState *gs);
+int isGameOver(GameState *gs);
+int findWinner(GameState *gs);
+int calculateNetWorth(GameState *gs, int playerIndex);
+
+int main(void) {
+    srand((unsigned int)time(NULL));   // ONE-TIME seed — never call srand() again anywhere else
+
+    GameState gs = {0};                // zero-initialize everything
+    printf("MONOPOLY-LK Simulation\n\n");
+
+    initBoard(gs.board);
+    initPlayers(&gs);
+
+    int turnOrder[NUM_PLAYERS];
+    determineTurnOrder(&gs, turnOrder);
+
+    printf("\nTurn order:\n");
+    for (int i = 0; i < NUM_PLAYERS; i++) {
+        printf("%s\n", gs.players[turnOrder[i]].name);
+    }
+
+    // Main game loop — Rule 15 (max 500 rounds or 1 solvent player left)
+    while (!isGameOver(&gs)) {
+        for (int i = 0; i < NUM_PLAYERS; i++) {
+            playTurn(&gs, turnOrder[i]);
+        }
+        endOfRoundProcessing(&gs);
+    }
+
+    int winner = findWinner(&gs);
+    printf("\n=============================================\n");
+    printf("GAME OVER\n\nWinner\n\n%s\n\nNet Worth\n\nLKR %d\n",
+           gs.players[winner].name, calculateNetWorth(&gs, winner));
+    printf("=============================================\n");
+
+    return 0;
+}
+```
+
+---
+
+## 10. Pointer Cheat-Sheet (Since You Said You're Using Pointers Throughout)
+
+| You want to... | Use... | Why |
+|---|---|---|
+| Let a function change the real player's cash (not a copy) | `Player *p` parameter | Structs are copied by value in C — without `*`, changes inside the function vanish when it returns |
+| Let a function change the real game state | `GameState *gs` parameter | Same reason, but for the whole game |
+| Point from a property to its owner | Don't! Store `ownerId` (an `int` index into `players[4]`) instead | Simpler than a raw pointer, avoids dangling-pointer bugs, and is easy to print/debug |
+| Track which squares are pledged as loan collateral | `int loanCollateral[BOARD_SIZE]` array of flags on `Player` | Cleaner than an array of pointers — you can loop over it with a simple `for` |
+| Pass an array to a function | `Square board[BOARD_SIZE]` in the parameter list | Arrays "decay" to pointers automatically in C — this is already a pointer under the hood |
+
+**Golden rule:** if a function needs to *change* something the caller should still see afterward,
+pass a pointer (`*`). If it just needs to *read* something, you can pass a plain copy, but for
+this project it's simplest to just pass `GameState *gs` everywhere and read/write through it.
+
+---
+
+## 11. Testing Order (so you're never debugging 7 files at once)
+
+1. Compile `types.h` + a `main.c` stub. Get a clean compile with zero warnings first.
+2. Test `board.c` alone: print `board[i].name` for all 40 squares, check against Table 1.
+3. Test `movePlayer()`: manually call it with a few dice values, print position before/after,
+   confirm GO bonus triggers correctly on wraparound.
+4. Test `finance.c` functions with hand-picked numbers (e.g. call `calculateMaxLoan()` with a
+   player who owns exactly the 3 properties from the Rule-LK 2 example — confirm you get 6,750).
+5. Test one strategy's `decidePurchase()` in isolation with known cash/price values.
+6. Only then wire `game.c`'s `playTurn()` together and run a handful of rounds with `printf`
+   tracing every step.
+7. Remove/quiet the tracing once a full 500-round run completes without crashing.
+
+---
+
+## 12. Quick Reference: Where Does X Live?
+
+| Concept | File | Struct/Function |
+|---|---|---|
+| Board layout & rent tables | `board.c` | `initBoard()` |
+| Player strategy decisions | `players.c` | `decidePurchase`, `decideAuctionBid`, `decideLoanAmount` |
+| Loans & interest | `finance.c` | `takeLoan`, `repayLoan`, `applyLoanInterest` |
+| Insurance | `finance.c` | `buyInsurance` |
+| Net worth / winner | `finance.c` + `game.c` | `calculateNetWorth`, `findWinner` |
+| National Event Cards | `events.c` | `nationalDeck[20]`, `drawNationalEventCard` |
+| Regional Development Cards | `events.c` | (same pattern, `regionalDeck[12]`) |
+| Government Regulations | `events.c` | (same pattern, `regulationDeck[8]`) |
+| Inflation / market booms | `events.c` | `updateInflation`, `updatePropertyMarket` |
+| Turn sequence, auctions, round loop | `game.c` | `playTurn`, `runAuction`, `endOfRoundProcessing` |
+| Program start, RNG seed, main loop | `main.c` | `main()` |
+
+Good luck — build in the order in Section 2, test after every file per Section 11, and you'll
+have a working simulation well before the deadline. 

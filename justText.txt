@@ -1,0 +1,27 @@
+.squareIndex = 1,
+        .name = "Pettah",
+        .type = SQUARE_PROPERTY,
+        .group = GROUP_BROWN,
+        
+        .purchasePrice = 1500,
+        .baseRent = 100,
+        .houseCost = 500,
+        .hotelCost = 2000,
+        .mortgageValue = 750,
+
+        .currentValue = 1500,
+        .currentRent = 100,
+
+        .ownerId = -1,
+        .isMortgaged = 0,
+        .isLoanLocked = 0,
+
+        .numHouses = 0,
+        .hasHotel = 0,
+
+        .buildingCondition = 100,
+        .propertyAge = 0,
+        .isDamaged = 0,
+
+        .insurancePolicy = INSURANCE_NONE,
+        .insuranceRoundsLeft = 0,
