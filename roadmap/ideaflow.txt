@@ -210,6 +210,16 @@ typedef struct {
 ### The `Player` struct
 
 ```c
+// Reused everywhere something is "on for N more rounds" — a market boom, a
+// regulation, a regional card, or a player's national-card rent multiplier.
+// One shape, four uses. Defined before Player since Player embeds one.
+typedef struct {
+    int isActive;
+    int effectId;              // which card/regulation index; -1 if not applicable
+    PropertyGroup targetGroup; // GROUP_NONE if this effect isn't group-specific
+    int roundsRemaining;
+} ActiveEffect;
+
 typedef struct {
     char name[MAX_NAME_LEN];
     StrategyType strategy;
@@ -226,29 +236,20 @@ typedef struct {
     int loanInterestRate;         // percentage, locked in when loan was taken
     int loanRoundsLeft;           // counts down from 20
     int loanCollateral[BOARD_SIZE]; // 1 if board[i] is pledged to this loan
+
+    // Appendix A: rent multiplier from the last National Event Card this player
+    // drew. effectId holds the card's rentMultiplierPercentage while isActive.
+    ActiveEffect nationalCard;
 } Player;
 ```
 
 ### The `Economy` struct (tracks every "currently active" temporary effect)
 
 ```c
-// Reused everywhere something is "on for N more rounds" — a market boom,
-// a regulation, a regional card. One shape, three uses.
-typedef struct {
-    int isActive;
-    int effectId;              // which card/regulation index; -1 if not applicable
-    PropertyGroup targetGroup; // GROUP_NONE if this effect isn't group-specific
-    int roundsRemaining;
-} ActiveEffect;
-
 typedef struct {
     int round;
     int inflationRate;            // e.g. 5 means +5% (Rule-LK 12)
     int baseInterestRate;         // current loan interest rate for NEW loans (Table 9)
-
-    // National Event Card deck — the ONLY one that actually cycles (spec says
-    // drawn cards return to the bottom), so it's the only one needing an index.
-    int nationalCardNextIndex;    // 0..19, wraps back to 0
 
     // Regional cards, gov regulations, and market booms/declines are all
     // freshly "drawn"/"selected randomly" each time — no deck, no index.
@@ -263,6 +264,12 @@ typedef struct {
     PropertyGroup lastDeclineGroup;
 } Economy;
 ```
+
+Note: there's no `nationalCardNextIndex` here — the national deck (Section A below) now returns
+a drawn card to the bottom by physically shifting the array, so nothing needs to remember "which
+slot is next." `Player.nationalCard` exists separately from that: Appendix A says a card's effect
+applies "to the player who drew the card," so the multiplier has to live on the `Player`, not on
+the shared `Economy` (unlike the regional/regulation/market effects above, which affect everyone).
 
 ### The top-level `GameState` struct
 
@@ -500,47 +507,90 @@ int calculateNetWorth(GameState *gs, int playerIndex) {
 - Every function here takes `GameState *gs` and modifies it directly through the pointer — that's
   how the rest of the game "sees" the effects.
 
-### Card decks — fixed arrays + one index counter (the simplest way to "cycle a deck")
+### Card decks — the national deck actually shifts, matching the spec literally
 
-The spec says a drawn card goes "to the bottom of the deck." You do **not** need to physically
-move data around in the array to achieve this. If you just keep one integer that says "which
-slot do I draw next" and increment it (wrapping back to 0 at the end), you get the exact same
-result: card 0 is drawn, then next time it's card 1, and so on — by the time you loop back to
-card 0, every other card has already come up in between. That's "returned to the bottom" without
-any shifting code at all.
+The spec says a drawn card goes "to the bottom of the deck." The implementation takes that
+literally: the top card always lives in slot 0, and after it's drawn every other card is shifted
+up one slot (a plain `while` loop, no `%` trick) with the drawn card placed in the last slot. This
+is more explicit than an index that just cycles forward, and it means the array itself is always
+the true, current deck order — nothing else needs to remember "which slot is next."
 
 ```c
 typedef struct {
     char name[40];
-    int cashBonus;          // 0 if no direct cash effect
-    int rentMultiplierPct;  // 100 = normal, 200 = double, etc. 0 = not applicable
+    int cashBonus;                 // 0 if no direct cash effect
+    int rentMultiplierPercentage;  // 100 = normal, 200 = double, etc. 0 = not applicable
 } NationalEventCard;
 
 // Appendix A — all 20 cards, as a fixed array. (Showing 3 as an example — fill in the rest.)
+// NOTE: the struct only models a flat cash bonus and a rent multiplier, so cards whose
+// effect is a property/construction/insurance percentage change (not rent) are recorded
+// as { name, 0, 0 } here — the comment on each line still states the real Appendix A effect,
+// and that effect has to be applied separately inside drawNationalEventCard (or wherever
+// its 15-round window is tracked) using the card's name/index to decide what to do.
 static NationalEventCard nationalDeck[20] = {
-    { "Tourism Hype",       0,    200 }, // hotels earn double rent for 5 rounds
-    { "Tax Amnesty",     2000,      0 }, // each player receives LKR 2,000
-    { "Government Grant", 5000,     0 }, // random player receives LKR 5,000
-    // ... 17 more cards from Appendix A
+    { "Tourism Hype",           0, 200 }, // hotels earn double rent for 5 rounds
+    { "Fuel Shortage",          0, 200 }, // railway rent doubles for 5 rounds
+    { "Heavy Floods",           0,   0 }, // random coastal property damaged
+    { "Political Rally",        0,   0 }, // one random property closed for 2 rounds
+    { "Stock Market Rise",      0,   0 }, // all property values increase by 10%
+    { "Economic Downturn",      0,   0 }, // property values decrease by 15%
+    { "Housing Subsidy",        0,   0 }, // house construction cost reduced by 30%
+    { "Interest Rate Cut",      0,   0 }, // loan interest reduced by 2%
+    { "Interest Rate Increase", 0,   0 }, // loan interest increased by 2%
+    { "Tax Amnesty",         2000,   0 }, // each player receives LKR 2,000
+    { "Power Failure",          0,  50 }, // utility income halved for 3 rounds
+    { "Foreign Funding",        0,   0 }, // commercial property values increase by 15%
+    { "Port Expansion",         0,   0 }, // railway station values increase by 20%
+    { "Festival Season",        0, 150 }, // hotels receive 50% additional rent
+    { "Labour Strike",          0,   0 }, // construction suspended for 2 rounds
+    { "Insurance Discount",     0,   0 }, // premiums reduced by 20%
+    { "Property Revaluation",   0,   0 }, // random property group appreciates by 15%
+    { "Currency Depreciation",  0,   0 }, // construction costs increase by 10%
+    { "Government Grant",    5000,   0 }, // random player receives LKR 5,000
+    { "National Disaster",      0,   0 }, // random developed property damaged
 };
 
-// Draws the "next" card, applies its effect, then advances the index for next time.
+// Draws the top card (slot 0), applies whatever the struct can represent to the player
+// who drew it, then sends that same card to the bottom of the deck.
 void drawNationalEventCard(GameState *gs, int playerIndex) {
-    int idx = gs->economy.nationalCardNextIndex;
-    NationalEventCard card = nationalDeck[idx];
 
-    gs->players[playerIndex].cash += card.cashBonus;
-    // ...apply rentMultiplierPct, damage effects, etc. depending on the card
+    // 1) The top card is always sitting in slot 0.
+    NationalEventCard drawnCard = nationalDeck[0];
+    Player *player = &gs->players[playerIndex];
 
-    printf("Economic Event\n\n%s\n\n", card.name);
+    printf("Economic Event\n\n%s\n\n", drawnCard.name);
 
-    // Advance to the next slot, wrapping back to 0 after the last card (index 19)
-    gs->economy.nationalCardNextIndex = (idx + 1) % 20;
+    // 2) A cash bonus (if the card has one) is credited immediately.
+    if (drawnCard.cashBonus != 0) {
+        player->cash = player->cash + drawnCard.cashBonus;
+    }
+
+    // 3) A rent multiplier (if the card has one) stays active on this player for the
+    //    standard national card duration (NATIONAL_CARD_DURATION_ROUNDS in types.h).
+    if (drawnCard.rentMultiplierPercentage != 0) {
+        player->nationalCard.isActive = 1;
+        player->nationalCard.effectId = drawnCard.rentMultiplierPercentage;
+        player->nationalCard.targetGroup = GROUP_NONE;
+        player->nationalCard.roundsRemaining = NATIONAL_CARD_DURATION_ROUNDS;
+    }
+    // ...still to do: property value, construction cost, insurance premium and damage
+    // effects for the remaining cards, once those systems exist in finance.c/board.c.
+
+    // 4) Send the drawn card to the bottom of the deck: shift every other card up one
+    //    slot, then place the drawn card in the now-empty last slot.
+    int i = 0;
+    while (i < 19) {
+        nationalDeck[i] = nationalDeck[i + 1];
+        i = i + 1;
+    }
+    nationalDeck[19] = drawnCard;
 }
 ```
 
-The Regional Development deck (Section 2.10) and Government Regulation deck (Section 2.7)
-follow the **exact same pattern** — a fixed array + one "next index" counter. The only
+The Regional Development deck (Section 2.10) and Government Regulation deck (Section 2.7) don't
+need the shifting trick above — per the spec they're picked freshly at random each time rather
+than cycling through a fixed order, so a simple `rand() % N` index is enough for them. The only
 difference is these two stay "active" for a number of rounds rather than firing once instantly:
 
 ```c
@@ -558,15 +608,23 @@ static RegionalCard regionalDeck[12] = {
 
 // Called every 15 rounds (Section 2.10). Draws next card, marks it active for 15 rounds.
 void triggerRegionalDevelopmentCard(GameState *gs) {
+
+    // 1) Find out which card is next in the deck.
     int idx = gs->economy.regionalCardNextIndex;
 
+    // 2) Mark that card as the active one for the next 15 rounds.
     gs->economy.regionalCardActive = idx;
     gs->economy.regionalCardRoundsLeft = 15;
     // ...apply regionalDeck[idx].valuePercentChange to the relevant squares here
 
     printf("Regional Development Card\n\n%s\n", regionalDeck[idx].name);
 
-    gs->economy.regionalCardNextIndex = (idx + 1) % 12;
+    // 3) Move on to the next card, looping back to the start after the last one.
+    int nextIndex = idx + 1;
+    if (nextIndex >= 12) {
+        nextIndex = 0;
+    }
+    gs->economy.regionalCardNextIndex = nextIndex;
 }
 ```
 
@@ -580,14 +638,26 @@ pattern above and just rename things — that's the whole trick.
 ```c
 // Rule-LK 12/13/14 — called every 10 rounds.
 void updateInflation(GameState *gs) {
+
+    // 1) Pick a random inflation rate from the allowed list.
     int possibleRates[] = { -3, 0, 2, 5, 8, 12 };
     gs->economy.inflationRate = possibleRates[rand() % 6];
 
-    // Apply to every property's current value (Rule-LK 14 formula)
-    for (int i = 0; i < BOARD_SIZE; i++) {
+    // 2) Apply that rate to every property's current value (Rule-LK 14 formula).
+    int i = 0;
+    while (i < BOARD_SIZE) {
         Square *sq = &gs->board[i];
-        if (sq->type != SQ_PROPERTY) continue;
-        sq->currentValue = sq->currentValue * (100 + gs->economy.inflationRate) / 100;
+
+        int isProperty = 0;
+        if (sq->type == SQ_PROPERTY) {
+            isProperty = 1;
+        }
+
+        if (isProperty == 1) {
+            sq->currentValue = sq->currentValue * (100 + gs->economy.inflationRate) / 100;
+        }
+
+        i = i + 1;
     }
 }
 
@@ -595,26 +665,38 @@ void updateInflation(GameState *gs) {
 // All 8 real property groups live in a small fixed array so we can pick a random INDEX
 // into it (0..7) instead of doing enum arithmetic — easier to read and debug.
 void updatePropertyMarket(GameState *gs) {
+
     PropertyGroup allGroups[8] = {
         GROUP_BROWN, GROUP_LIGHT_BLUE, GROUP_PINK, GROUP_ORANGE,
         GROUP_RED, GROUP_YELLOW, GROUP_GREEN, GROUP_DARK_BLUE
     };
 
-    PropertyGroup boom    = allGroups[rand() % 8];
+    // 1) Pick a boom group and a decline group - they must not be the same.
+    PropertyGroup boom = allGroups[rand() % 8];
     PropertyGroup decline = allGroups[rand() % 8];
     while (decline == boom) {
         decline = allGroups[rand() % 8]; // must differ (Rule-LK 30)
     }
 
+    // 2) Record the boom/decline groups and how long they last.
     gs->economy.boomGroup = boom;
     gs->economy.boomRoundsLeft = 10;
     gs->economy.declineGroup = decline;
     gs->economy.declineRoundsLeft = 10;
 
-    for (int i = 0; i < BOARD_SIZE; i++) {
+    // 3) Bump up the boom group's property values and drop the decline group's.
+    int i = 0;
+    while (i < BOARD_SIZE) {
         Square *sq = &gs->board[i];
-        if (sq->group == boom)    sq->currentValue = sq->currentValue * 120 / 100; // +20%
-        if (sq->group == decline) sq->currentValue = sq->currentValue *  85 / 100; // -15%
+
+        if (sq->group == boom) {
+            sq->currentValue = sq->currentValue * 120 / 100; // +20%
+        }
+        if (sq->group == decline) {
+            sq->currentValue = sq->currentValue * 85 / 100; // -15%
+        }
+
+        i = i + 1;
     }
 }
 ```

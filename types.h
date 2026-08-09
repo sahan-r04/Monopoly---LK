@@ -19,6 +19,7 @@
 #define MAINTENANCE_NEGLECT_LIMIT           20
 #define BUILDING_DECAY_PERCENTAGE_PER_ROUND  2
 #define MARKET_BOOM_COOLDOWN_RONDS          30
+#define NATIONAL_CARD_DURATION_ROUNDS        15
 
 typedef enum SquareType{
     SQUARE_START,
@@ -34,7 +35,7 @@ typedef enum SquareType{
     SQUARE_BANK,
 } SquareType;
 
-typedef enum PropertyGroup{
+typedef enum PropertyGroup {
     GROUP_NONE, // Square isn't a property
     GROUP_BROWN, // Group 1 (Pettah, Maradana)
     GROUP_LIGHT_BLUE, // Group 2 (Bambalapitiya, Wellawatte, Mount Lavinia)
@@ -46,21 +47,21 @@ typedef enum PropertyGroup{
     GROUP_DARK_BLUE, //Group 8 (Nuwara Eliya, Galle Face)
 } PropertyGroup;
 
-typedef enum StrategyType{
+typedef enum StrategyType {
     STRATEGY_AGGRESSIVE, // Aggressive Investor
     STRATEGY_CONSERVATIVE, // Conservative Banker
     STRATEGY_RISK_TAKER, // Risk Taker
     STRATEGY_OPPORTUNISTIC, // Opportunistic Trader
 } StrategyType;
 
-typedef enum InsuranceType{
+typedef enum InsuranceType {
     INSURANCE_NONE = -1,
     INSURANCE_BASIC,
     INSURANCE_COMPREHENSIVE,
     INSURANCE_BUSINESS_INTERRUPTION,
 } InsuranceType;
 
-typedef enum DisasterType{
+typedef enum DisasterType {
     DISASTER_FIRE,
     DISASTER_FLOOD,
     DISASTER_RIOT,
@@ -68,7 +69,7 @@ typedef enum DisasterType{
     DISASTER_ELECTRICAL,
 } DisasterType;
 
-typedef struct Square{
+typedef struct Square {
     int squareIndex; // 0-39 position on the board 
     char name[MAX_NAME_LEN]; // Name of the square
     SquareType type;
@@ -104,7 +105,14 @@ typedef struct Square{
     int insuranceRoundsLeft;
 } Square;
 
-typedef struct Player{
+typedef struct ActiveEffect{
+    int isActive; //0 or 1
+    int effectId;
+    PropertyGroup targetGroup;
+    int roundsRemaining; //counting remaining rounds get effected
+} ActiveEffect;
+
+typedef struct Player {
     char name[MAX_NAME_LEN];
     StrategyType strategy;
 
@@ -120,25 +128,19 @@ typedef struct Player{
     int loanInterestRate; 
     int loanRoundsLeft;
     int loanCollateral[BOARD_SIZE]; // square(property/utility) pledged to this loan
-} Player;
 
-typedef struct ActiveEffect{
-    int isActive; //0 or 1
-    int effectId;
-    PropertyGroup targetGroup;
-    int roundsRemaining; //counting remaining rounds get effected
-} ActiveEffect;
+    //-----Active National Event Card effect on this player (Appendix A)-----//
+    // effectId holds the drawn card's rentMultiplierPercentage while this is active.
+    ActiveEffect nationalCard;
+} Player;
 
 typedef struct Economy{
     int round;
     int inflationRate;
     int baseInterestRate;
 
-    //----National Event Card----//
-    int nationalCardNextIndex;
-
     ActiveEffect regionalCard;
-    ActiveEffect govRegulation;
+    ActiveEffect governmentRegulation;
     ActiveEffect marketBoom;
     ActiveEffect marketDecline;
 
@@ -146,6 +148,17 @@ typedef struct Economy{
     PropertyGroup lastBoomGroup;
     PropertyGroup lastDeclineGroup;
 } Economy;
+
+typedef struct NationalEventCard {
+    char name[40];
+    int cashBonus;          // 0 if no direct cash effect
+    int rentMultiplierPercentage;  // 100% = normal, 200% = double, 0 = not applicabl
+} NationalEventCard;
+
+typedef struct RegionalCard {
+    char name[50];
+    int valuePercentageChange;   // +25 = property values in the targetted group rise 25%
+} RegionalCard;
 
 typedef struct GameState{
     Square board[BOARD_SIZE];
