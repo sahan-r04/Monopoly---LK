@@ -70,6 +70,7 @@ void takeLoan(GameState *gamestate, int playerIndex, int amount, int collateralC
     }
 }
 
+//---- Rule-LK 5 ----//
 void repayLoan(GameState *gamestate, int playerIndex, int amount){
 
     // 1) If this player doesn't have a loan.
@@ -91,12 +92,12 @@ void repayLoan(GameState *gamestate, int playerIndex, int amount){
 
     // 3) Deduct the (capped) repayment from the player cash & reduce the loan balance.
 
-    gamestate->players[playerIndex].cash = currentCash - amount;
-    gamestate->players[playerIndex].loanAmount = currentLoanAmount - amount;
+    gamestate -> players[playerIndex].cash = currentCash - amount;
+    gamestate -> players[playerIndex].loanAmount = currentLoanAmount - amount;
 
     // 4) Only if the loan is fully paid off, the collateral will be unlocked.
 
-    if (gamestate->players[playerIndex].loanAmount == 0) {
+    if (gamestate -> players[playerIndex].loanAmount == 0) {
 
         int i = 0;
         while (i < BOARD_SIZE) {
@@ -113,3 +114,85 @@ void repayLoan(GameState *gamestate, int playerIndex, int amount){
         gamestate -> players[playerIndex].loanRoundsLeft = 0;
     }
 }
+
+// called once at the end of every complete round for every player with a loan.
+void applyLoanInterest(GameState *gamestate) {
+
+    int i = 0;
+    while (i < NUM_PLAYERS) {
+
+        Player *player = &gamestate -> players[i];
+
+        int playerHasLoan = 0;
+        if (player->hasLoan == 1) {
+            playerHasLoan = 1;
+        }
+
+        if (playerHasLoan == 1) {
+
+            // 1) Work out how much interest this player owes this round.
+            int interest = (player -> loanAmount * player -> loanInterestRate) / 100;
+
+            // 2) Add the interest onto the loan balance.
+            player -> loanAmount = player -> loanAmount + interest;
+
+            // 3) One less round left before the loan is due.
+            player -> loanRoundsLeft = player -> loanRoundsLeft - 1;
+
+            // 4) If no rounds are left, the loan is due now - foreclose (Rule-LK 6/7).
+            if (player -> loanRoundsLeft <= 0) {
+
+                // 4a) Give every square pledged as collateral back to the bank.
+                int j = 0;
+                while (j < BOARD_SIZE) {
+                    if (player -> loanCollateral[j] == 1) {
+                        gamestate->board[j].ownerId = -1;
+                        gamestate->board[j].isLoanLocked = 0;
+                        player->loanCollateral[j] = 0;
+                    }
+                    j = j + 1;
+                }
+
+                // 4b) The debt is settled, so wipe out the loan.
+                player -> hasLoan = 0;
+                player -> loanAmount = 0;
+                player -> loanInterestRate = 0;
+                player -> loanRoundsLeft = 0;
+            }
+        }
+
+        i = i + 1;
+    }
+}
+//---- Buying and renewing insurance policy on one property. ----//
+void getInsurance(GameState *gamestate, int playerIndex, int squareIndex, InsuranceType policy) {
+    
+    Square *square = &gamestate -> board[squareIndex];
+    Player *player = &gamestate -> players[playerIndex];
+
+    // 1) Work out the premium percentage for the chosen policy.
+    int premiumPercentage = 0;
+    if (policy == INSURANCE_BASIC) {
+        premiumPercentage = 5;
+    } else if (policy == INSURANCE_COMPREHENSIVE) {
+        premiumPercentage = 10;
+    } else {
+        premiumPercentage = 15;
+    }
+
+    // 2) Calculate how much that premium actually costs.
+    int premium = (square -> currentValue * premiumPercentage) / 100;
+
+    // 3) Only buy the policy if the player has enough cash for it
+    int canAfford = 0;
+    if (player -> cash >= premium) {
+        canAfford = 1;
+    }
+
+    if (canAfford == 1) {
+        player -> cash = player -> cash - premium;
+        square -> insurancePolicy = policy;
+        square -> insuranceRoundsLeft = 20;
+    }
+}
+

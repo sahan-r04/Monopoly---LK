@@ -421,15 +421,31 @@ void applyLoanInterest(GameState *gs) {
 
 // Section 1.2: buys/renews an insurance policy on one property.
 void buyInsurance(GameState *gs, int playerIndex, int squareIndex, InsuranceType policy) {
+
     Square *sq = &gs->board[squareIndex];
     Player *p = &gs->players[playerIndex];
 
-    int premiumPercent = (policy == INSURANCE_BASIC) ? 5
-                        : (policy == INSURANCE_COMPREHENSIVE) ? 10 : 15;
+    // 1) Work out the premium percentage for the chosen policy.
+    int premiumPercent = 0;
+    if (policy == INSURANCE_BASIC) {
+        premiumPercent = 5;
+    } else if (policy == INSURANCE_COMPREHENSIVE) {
+        premiumPercent = 10;
+    } else {
+        premiumPercent = 15;
+    }
+
+    // 2) Work out how much that premium actually costs.
     int premium = (sq->currentValue * premiumPercent) / 100;
 
+    // 3) Only buy the policy if the player has enough cash for it.
+    int canAfford = 0;
     if (p->cash >= premium) {
-        p->cash -= premium;
+        canAfford = 1;
+    }
+
+    if (canAfford == 1) {
+        p->cash = p->cash - premium;
         sq->insurancePolicy = policy;
         sq->insuranceRoundsLeft = 20;
     }

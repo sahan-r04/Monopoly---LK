@@ -20,7 +20,7 @@
 #define BUILDING_DECAY_PERCENTAGE_PER_ROUND  2
 #define MARKET_BOOM_COOLDOWN_RONDS          30
 
-typedef enum {
+typedef enum SquareType{
     SQUARE_START,
     SQUARE_PROPERTY,
     SQUARE_RAILWAY,
@@ -34,7 +34,7 @@ typedef enum {
     SQUARE_BANK,
 } SquareType;
 
-typedef enum {
+typedef enum PropertyGroup{
     GROUP_NONE, // Square isn't a property
     GROUP_BROWN, // Group 1 (Pettah, Maradana)
     GROUP_LIGHT_BLUE, // Group 2 (Bambalapitiya, Wellawatte, Mount Lavinia)
@@ -46,21 +46,21 @@ typedef enum {
     GROUP_DARK_BLUE, //Group 8 (Nuwara Eliya, Galle Face)
 } PropertyGroup;
 
-typedef enum {
+typedef enum StrategyType{
     STRATEGY_AGGRESSIVE, // Aggressive Investor
     STRATEGY_CONSERVATIVE, // Conservative Banker
     STRATEGY_RISK_TAKER, // Risk Taker
     STRATEGY_OPPORTUNISTIC, // Opportunistic Trader
 } StrategyType;
 
-typedef enum {
+typedef enum InsuranceType{
     INSURANCE_NONE = -1,
     INSURANCE_BASIC,
     INSURANCE_COMPREHENSIVE,
     INSURANCE_BUSINESS_INTERRUPTION,
 } InsuranceType;
 
-typedef enum {
+typedef enum DisasterType{
     DISASTER_FIRE,
     DISASTER_FLOOD,
     DISASTER_RIOT,
@@ -68,7 +68,7 @@ typedef enum {
     DISASTER_ELECTRICAL,
 } DisasterType;
 
-typedef struct {
+typedef struct Square{
     int squareIndex; // 0-39 position on the board 
     char name[MAX_NAME_LEN]; // Name of the square
     SquareType type;
@@ -104,7 +104,7 @@ typedef struct {
     int insuranceRoundsLeft;
 } Square;
 
-typedef struct {
+typedef struct Player{
     char name[MAX_NAME_LEN];
     StrategyType strategy;
 
@@ -122,14 +122,14 @@ typedef struct {
     int loanCollateral[BOARD_SIZE]; // square(property/utility) pledged to this loan
 } Player;
 
-typedef struct {
+typedef struct ActiveEffect{
     int isActive; //0 or 1
     int effectId;
     PropertyGroup targetGroup;
     int roundsRemaining; //counting remaining rounds get effected
 } ActiveEffect;
 
-typedef struct {
+typedef struct Economy{
     int round;
     int inflationRate;
     int baseInterestRate;
@@ -147,7 +147,7 @@ typedef struct {
     PropertyGroup lastDeclineGroup;
 } Economy;
 
-typedef struct {
+typedef struct GameState{
     Square board[BOARD_SIZE];
     Player players[NUM_PLAYERS];
     Economy economy;
