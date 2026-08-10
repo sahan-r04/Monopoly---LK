@@ -52,7 +52,7 @@ void takeLoan(GameState *gamestate, int playerIndex, int amount, int collateralC
     // 2) Record the loan details on the player
 
     gamestate -> players[playerIndex].hasLoan = 1;
-    gamestate ->players[playerIndex].loanAmount = amount;
+    gamestate -> players[playerIndex].loanAmount = amount;
     gamestate -> players[playerIndex].loanInterestRate = gamestate->economy.baseInterestRate;
     gamestate -> players[playerIndex].loanRoundsLeft = LOAN_DURATION_ROUNDS;
 
@@ -74,6 +74,7 @@ void takeLoan(GameState *gamestate, int playerIndex, int amount, int collateralC
 void repayLoan(GameState *gamestate, int playerIndex, int amount){
 
     // 1) If this player doesn't have a loan.
+
     if (gamestate -> players[playerIndex].hasLoan == 0){
         return;
     }
@@ -115,7 +116,7 @@ void repayLoan(GameState *gamestate, int playerIndex, int amount){
     }
 }
 
-// called once at the end of every complete round for every player with a loan.
+// calling once at the end of every complete round for every player with a loan.
 void applyLoanInterest(GameState *gamestate) {
 
     int i = 0;
@@ -124,13 +125,13 @@ void applyLoanInterest(GameState *gamestate) {
         Player *player = &gamestate -> players[i];
 
         int playerHasLoan = 0;
-        if (player->hasLoan == 1) {
+        if (player -> hasLoan == 1) {
             playerHasLoan = 1;
         }
 
         if (playerHasLoan == 1) {
 
-            // 1) Work out how much interest this player owes this round.
+            // 1) Calculating how much interest this player owes this round.
             int interest = (player -> loanAmount * player -> loanInterestRate) / 100;
 
             // 2) Add the interest onto the loan balance.
@@ -164,7 +165,7 @@ void applyLoanInterest(GameState *gamestate) {
         i = i + 1;
     }
 }
-//---- Buying and renewing insurance policy on one property. ----//
+//---- Buying and renewing insurance policy on single property. ----//
 void getInsurance(GameState *gamestate, int playerIndex, int squareIndex, InsuranceType policy) {
     
     Square *square = &gamestate -> board[squareIndex];
@@ -196,3 +197,53 @@ void getInsurance(GameState *gamestate, int playerIndex, int squareIndex, Insura
     }
 }
 
+void payRent(GameState *gamestate, int playerIndex, int squareIndex) {
+    Square *square = &gamestate -> board[squareIndex];
+    if (square -> ownerId == -1 || square -> isMortgaged){
+        return;
+     } // /No rent due
+
+    int rent = square -> currentRent; // assume already recalculated with condition/booms/etc.
+    Player *payer = &gamestate -> players[playerIndex];
+    Player *owner = &gamestate -> players[square -> ownerId];
+
+    if (rent > payer -> cash) {
+         rent = payer -> cash; // Could be gone bankrupt after this.
+    }
+    payer -> cash = payer -> cash - rent;
+    owner -> cash = owner -> cash + rent;
+}
+
+int calculateNetWorth(GameState *gamestate, int playerIndex) {
+
+    Player *player = &gamestate -> players[playerIndex];
+    int netWorth = player -> cash;
+
+    // 1) Add up the value of every property this player owns.
+    int i = 0;
+    while (i < BOARD_SIZE) {
+        Square *square = &gamestate -> board[i];
+
+        int isOwnedByThisPlayer = 0;
+        if (square -> ownerId == playerIndex) {
+            isOwnedByThisPlayer = 1;
+        }
+
+        if (isOwnedByThisPlayer == 1) {
+            netWorth = netWorth + square -> currentValue;
+
+            if (square -> isMortgaged) {
+                netWorth = netWorth - square -> mortgageValue;
+            }
+        }
+
+        i = i + 1;
+    }
+
+    // 2) Subtract any outstanding loan balance.
+    if (player -> hasLoan) {
+        netWorth = netWorth - player -> loanAmount;
+    }
+
+    return netWorth;
+}

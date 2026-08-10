@@ -599,11 +599,23 @@ typedef struct {
     int valuePercentChange;   // e.g. +25 means property values in the affected group rise 25%
 } RegionalCard;
 
-// Table 4 — 12 cards, fixed array. (Showing 2 as an example — fill in the rest.)
+// Table 4 — all 12 cards, fixed array.
+// NOTE: the struct only models a single flat percentage, so "Water Shortage" (which has
+// two different percentages for two different things) is recorded with its primary
+// number here — the comment on each line still states the real Table 4 effect in full.
 static RegionalCard regionalDeck[12] = {
-    { "Southern Tourism Boom", 40 }, // Galle Fort, Unawatuna, Hikkaduwa rent +40%
-    { "Port City Expansion",   25 }, // Pettah, Maradana, Colombo Fort Station value +25%
-    // ... 10 more cards from Table 4
+    { "Southern Tourism Boom",          40 }, // Galle Fort, Unawatuna, Hikkaduwa rental income +40%
+    { "Port City Expansion",            25 }, // Pettah, Maradana, Colombo Fort Station values +25%
+    { "IT Industry Growth",             20 }, // Maharagama, Nugegoda, Kottawa values +20%
+    { "Northern Development Programme", 30 }, // Jaffna Town, Nallur, Trincomalee values +30%
+    { "Tea Export Boom",                35 }, // Nuwara Eliya value +35%
+    { "Airport Expansion",              30 }, // Negombo, Katunayake, Ja-Ela rents +30%
+    { "University City Growth",         20 }, // Peradeniya, Kandy City values +20%
+    { "Beach Pollution",               -30 }, // Southern coastal rents -30%
+    { "Flood Damage",                  -20 }, // Low-lying coastal properties lose 20% value
+    { "Transport Strike",              -40 }, // Railway revenue reduced by 40%
+    { "Electricity Tariff Increase",    25 }, // Utility rent +25%
+    { "Water Shortage",                 20 }, // Water utility revenue +20%; surrounding properties -10%
 };
 
 // Called every 15 rounds (Section 2.10). Draws next card, marks it active for 15 rounds.

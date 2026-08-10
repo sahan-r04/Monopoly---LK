@@ -19,7 +19,8 @@
 #define MAINTENANCE_NEGLECT_LIMIT           20
 #define BUILDING_DECAY_PERCENTAGE_PER_ROUND  2
 #define MARKET_BOOM_COOLDOWN_RONDS          30
-#define NATIONAL_CARD_DURATION_ROUNDS        15
+#define NATIONAL_CARD_DURATION_ROUNDS       15
+#define REGIONAL_CARD_DURATION_ROUNDS       15
 
 typedef enum SquareType{
     SQUARE_START,
@@ -155,10 +156,10 @@ typedef struct NationalEventCard {
     int rentMultiplierPercentage;  // 100% = normal, 200% = double, 0 = not applicabl
 } NationalEventCard;
 
-typedef struct RegionalCard {
+typedef struct RegionalDevelopmentCard {
     char name[50];
     int valuePercentageChange;   // +25 = property values in the targetted group rise 25%
-} RegionalCard;
+} RegionalDevelopmentCard;
 
 typedef struct GameState{
     Square board[BOARD_SIZE];
