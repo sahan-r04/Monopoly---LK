@@ -126,9 +126,9 @@ int decideLoanAmount(GameState *gamestate, int playerIndex) {
                 ownsThisSquare = 1;
             }
 
-            int hasRoomToBuild = 0;
+            int hasSpaceToBuild = 0;
             if (square -> numHouses < MAX_HOUSES && square -> hasHotel == 0) {
-                hasRoomToBuild = 1;
+                hasSpaceToBuild = 1;
             }
 
             int ownsMonopolyOnThisGroup = 0;
@@ -138,7 +138,7 @@ int decideLoanAmount(GameState *gamestate, int playerIndex) {
                 }
             }
 
-            if (ownsThisSquare == 1 && hasRoomToBuild == 1 && ownsMonopolyOnThisGroup == 1) {
+            if (ownsThisSquare == 1 && hasSpaceToBuild == 1 && ownsMonopolyOnThisGroup == 1) {
                 canImproveRentalIncome = 1;
             }
 
