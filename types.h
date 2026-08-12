@@ -1,26 +1,27 @@
 #ifndef TYPES_H
 #define TYPES_H
 
-#define BOARD_SIZE                          40
-#define NUM_PLAYERS                          4
-#define STARTING_CASH                    30000
-#define MAX_ROUNDS                         500
-#define PASSING_GO_PAY                    2000
-#define BAIL_AMOUNT                        300
-#define MAX_NAME_LEN                        32
-#define AUCTION_INCREMENT                  250
-#define MAX_JAIL_TURNS                       3
-#define LOAN_DURATION_ROUNDS                20
-#define INSURANCE_DURATION_ROUNDS           20
-#define INSURANCE_WARNING_ROUNDS             3
-#define MAX_HOUSES                           4
-#define DEPRECIATION_AGE_LIMIT              50
-#define DEPRECIATION_MAX_PERCENTAGE         30
-#define MAINTENANCE_NEGLECT_LIMIT           20
-#define BUILDING_DECAY_PERCENTAGE_PER_ROUND  2
-#define MARKET_BOOM_COOLDOWN_RONDS          30
-#define NATIONAL_CARD_DURATION_ROUNDS       15
-#define REGIONAL_CARD_DURATION_ROUNDS       15
+#define BOARD_SIZE                              40
+#define NUM_PLAYERS                              4
+#define STARTING_CASH                        30000
+#define MAX_ROUNDS                             500
+#define PASSING_GO_PAY                        2000
+#define BAIL_AMOUNT                            300
+#define MAX_NAME_LEN                            50
+#define AUCTION_INCREMENT                      250
+#define MAX_JAIL_TURNS                           3
+#define LOAN_DURATION_ROUNDS                    20
+#define INSURANCE_DURATION_ROUNDS               20
+#define INSURANCE_WARNING_ROUNDS                 3
+#define MAX_HOUSES                               4
+#define DEPRECIATION_AGE_LIMIT                  50
+#define DEPRECIATION_MAX_PERCENTAGE             30
+#define MAINTENANCE_NEGLECT_LIMIT               20
+#define BUILDING_DECAY_PERCENTAGE_PER_ROUND      2
+#define MARKET_BOOM_COOLDOWN_RONDS              30
+#define NATIONAL_CARD_DURATION_ROUNDS           15
+#define REGIONAL_CARD_DURATION_ROUNDS           15
+#define GOVERNMENT_REGULATION_DURATION_ROUNDS   20
 
 typedef enum SquareType{
     SQUARE_START,
@@ -140,7 +141,13 @@ typedef struct Economy{
     int inflationRate;
     int baseInterestRate;
 
+    //-----Active Regional Development Card effect (Section 2.10)-----//
+    // effectId holds the drawn card's valuePercentageChange while this is active.
     ActiveEffect regionalCard;
+
+    //-----Active Government Regulation effect (Section 2.7)-----//
+    // effectId holds the index (0-7) of the active regulation in
+    // governmentRegulationNames (events.c).
     ActiveEffect governmentRegulation;
     ActiveEffect marketBoom;
     ActiveEffect marketDecline;
@@ -151,12 +158,16 @@ typedef struct Economy{
 } Economy;
 
 typedef struct NationalEventCard {
+    int cardId;              // fixed ID (0-19) that stays with the card as it moves
+                              // through the deck, so it can still be identified after
+                              // being sent to the bottom
     char name[40];
     int cashBonus;          // 0 if no direct cash effect
     int rentMultiplierPercentage;  // 100% = normal, 200% = double, 0 = not applicabl
 } NationalEventCard;
 
 typedef struct RegionalDevelopmentCard {
+    int cardId;              // fixed ID (0-11), same purpose as NationalEventCard.cardId
     char name[50];
     int valuePercentageChange;   // +25 = property values in the targetted group rise 25%
 } RegionalDevelopmentCard;

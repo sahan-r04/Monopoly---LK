@@ -1,0 +1,161 @@
+yetToMake.txt
+==============
+What still needs to be built so the whole MONOPOLY-LK simulation actually runs, not
+just the pieces that currently exist in isolation. Organized by file. Updated after
+finishing all 6 events.c functions (drawNationalEventCard, drawRegionalDevelopmentCard,
+inflationChange, propertyMarketChange, governmentRegulationChange, triggerDisaster)
+and drafting a fixed runAuction() in roadmap/ideaflow.txt's game.c section.
+
+Status at a glance:
+- types.h    - mostly complete, a handful of fields still missing (see below)
+- board.c    - board setup + movement done; rent-by-development-level missing
+- finance.c  - loans/insurance/rent/net-worth done; several hooks still unwired
+- events.c   - DONE: all 6 functions implemented and internally correct
+- players.c  - EMPTY (0 bytes) - none of Section 3's strategy logic exists
+- game.c     - EMPTY (0 bytes) - no turn loop, so nothing above ever actually runs
+- main.c     - EMPTY (0 bytes) - no entry point, project can't link into a runnable
+               executable yet
+
+
+main.c  (currently EMPTY - 0 bytes)
+------------------------------------
+- No main() function exists at all. "gcc *.c -o monopoly" will fail with an
+  undefined reference to main until this exists.
+- Needs to: seed rand() (srand), build the board (monopolyBoard), set up 4 players
+  with their strategies (Rule 1), run the game loop (from game.c), then print the
+  final GAME OVER summary (Rule 15 / Section 5 "End of Game" output).
+
+
+game.c  (currently EMPTY - 0 bytes)
+------------------------------------
+The biggest remaining gap. Every events.c function is finished and correct, but
+nothing calls any of them yet - this file is what's supposed to call them on
+schedule. A draft turn sequence and runAuction() already exist in
+roadmap/ideaflow.txt's "## 8. game.c" section; still need to write the real file.
+- Turn loop implementing Rule 3's sequence (resolve penalties, roll dice, move,
+  resolve landing action, purchase, construct, financial transactions, end turn).
+- Player order determination (Rule 2 - roll dice, highest goes first, reroll ties).
+- Landing-action dispatch by square type (Table 1): must call
+  drawNationalEventCard() when a player lands on an Event square (squares 2, 7, 22,
+  36), and runAuction() when a purchase is declined (Rule 5).
+- A round counter and "end of round" step that:
+    - calls applyLoanInterest() (finance.c) - already exists, just needs wiring in
+    - calls inflationChange() and propertyMarketChange() every 10 rounds
+    - calls triggerDisaster() every 10 rounds
+    - calls drawRegionalDevelopmentCard() every 15 rounds
+    - calls governmentRegulationChange() every 20 rounds
+    - decrements every ActiveEffect's roundsRemaining (nationalCard per player,
+      regionalCard/governmentRegulation/marketBoom/marketDecline on economy) and,
+      when one hits 0, reverts whatever it changed (see the Rule-LK 35 note under
+      finance.c below - this needs a design decision, not just a loop)
+    - prints the Round N Summary block (Section 5 "End of Every Round") and the
+      Rule-LK 36 "Current Market Conditions" block
+- Bankruptcy detection (Rule 14) and win-condition checking (Rule 15: one solvent
+  player left, or 500 rounds reached).
+- The separate Section 2.5 "Economic Events" mechanic (Rule-LK 18: Tourism Boom,
+  Fuel Crisis, Heavy Monsoon, Economic Recession, Stock Market Boom, Government
+  Housing Programme, Foreign Investment, Political Unrest) is still not built
+  anywhere - this is a DIFFERENT deck from Appendix A's National Event Cards and
+  needs its own function and its own "every 15 rounds" trigger.
+
+
+players.c  (currently EMPTY - 0 bytes)
+-----------------------------------------
+- All four strategy behaviours from Section 3 (Aggressive Investor, Conservative
+  Banker, Risk Taker, Opportunistic Trader) - purchase decisions, auction bidding,
+  loan decisions, insurance decisions, construction decisions, renovation decisions.
+- decideAuctionBid(GameState*, int playerIndex, int squareIndex, int currentBid) -
+  game.c's runAuction() (see roadmap/ideaflow.txt) already calls this and expects a
+  bid amount back; nothing defines it yet.
+- Once Labour Strike / Anti-Speculation Act are wired up, construction logic here
+  needs to check the "construction suspended" flag and the "max 3 undeveloped
+  properties" rule before allowing a build - neither exists yet (see types.h below).
+- Conservative Banker's max loan strategy (taking a loan when bankruptcy is imminent)
+
+
+finance.c
+-----------
+- payRent() never checks square->isDamaged. Heavy Floods / Political Rally /
+  National Disaster / triggerDisaster() mark a property isDamaged = 1, but rent
+  still gets collected in full - Rule-LK 11 ("damaged buildings cannot collect rent
+  until repairs are completed") isn't enforced anywhere.
+- No repair mechanism exists to clear isDamaged once a player has sufficient funds
+  (Rule-LK 11's "repairs are automatically performed") for disasters that weren't
+  paid off immediately.
+- getInsurance() computes its premium as a hardcoded 5% / 10% / 15% of property
+  value. There's no discount input, so "Insurance Discount" (National Event Card)
+  and "Insurance Regulation" (Government Regulation) have nowhere to apply their
+  -20%/-15% - both are marked as still-to-do directly in events.c.
+- No Income Tax collection function exists at all (Rule 11) - and there's no stored
+  Income Tax amount anywhere either (see types.h below), so "Increase Property Tax"
+  (Government Regulation) has nothing to increase by 50%.
+- No dice-based utility rent calculation exists (Section 1.1.3: 4x dice value for
+  one utility owned, 10x for both). Utility squares' currentRent is fixed at 0 in
+  board.c and nothing ever recalculates it, so Power Failure / Electricity Tariff
+  Increase / Water Shortage / Electricity Tariff Revision currently multiply 0 and
+  stay 0.
+- No railway rent-by-station-count calculation exists (Table 2: 250/500/1000/2000
+  depending on how many stations the same player owns). currentRent for railways is
+  a flat 250 set once in board.c, so Fuel Shortage / Transport Strike / Port
+  Expansion / Railway Modernization currently just multiply that flat number
+  instead of the correct ownership-scaled value.
+- No "round tick" function exists that:
+    - ages every property (Rule-LK 15) and applies depreciation past 50 rounds
+      (Rule-LK 16)
+    - decays building condition by 2%/round (Rule-LK 25) and closes buildings
+      below 25% condition (Rule-LK 26)
+    - counts down insuranceRoundsLeft and expires policies (Rule-LK 9)
+    - reverts a Regional/National/Regulation/Market effect's currentValue/
+      currentRent change once its roundsRemaining reaches 0 (Rule-LK 35) - needs a
+      design decision (see the types.h baseline note below), not just a loop
+    - repeats the Luxury Property Tax charge every round while that regulation is
+      active, instead of the one-off charge governmentRegulationChange() currently
+      applies (marked ASSUMPTION in events.c)
+
+
+board.c
+---------
+- No function computing effective rent from base rent + development level (Table 6:
+  1x/2x/3x/5x/7x/10x multiplier by house/hotel count) - currentRent is only ever
+  set once at board setup and then directly overwritten by card/regulation/market
+  effects; nothing recalculates it from numHouses/hasHotel.
+(The MAX_NAME_LEN truncation bug from the earlier version of this file has been
+fixed - MAX_NAME_LEN is now 50.)
+
+
+types.h
+---------
+- No Income Tax amount anywhere. board.c's Income Tax square (index 4) only sets
+  name/type/group/ownerId - there's no constant or field for how much it actually
+  costs. Needed for Rule 11 and for the "Increase Property Tax" regulation to have
+  something to increase by 50%. Suggest a constant (e.g. INCOME_TAX_AMOUNT) plus a
+  mutable economy.currentIncomeTaxAmount initialized from it, since the regulation
+  needs to change it without touching the compile-time constant.
+- No "insurance premium discount" field on Economy for Insurance Discount / Insurance
+  Regulation to set and for finance.c's getInsurance() to read.
+- No "construction suspended" flag/counter on Economy for Labour Strike to set and
+  for players.c to check before building.
+- No field to track a temporary square-level closure duration. Political Rally
+  ("one random property closed for 2 rounds") currently just sets isDamaged = 1
+  with no way to know when those 2 rounds are up and reopen it automatically.
+  Suggest something like int closedRoundsLeft on Square.
+- No per-group cooldown tracker for Rule-LK 33. lastBoomGroup/lastDeclineGroup on
+  Economy only remember the single most recent group each, which is enough to stop
+  an immediate repeat (what propertyMarketChange() currently enforces) but not
+  enough for the full "can't be reselected for 30 rounds" rule across all 8 groups.
+  Suggest something like int groupCooldownRounds[9] on Economy.
+- No stored per-square "baseline" value/rent to revert to once an effect's
+  roundsRemaining expires (Rule-LK 35). Right now currentValue/currentRent are the
+  only record kept, and every card/regulation/market effect permanently multiplies
+  them in place - since Rule-LK 34 lets several percentage changes stack on the same
+  square, there's no way to cleanly undo just the one that expired without also
+  knowing what the square looked like before it hit. This is a bigger design
+  decision (e.g. an immutable snapshot of the board taken at startup, recomputing
+  current* fields each round from baseline x every still-active multiplier) rather
+  than a one-line field addition - worth deciding on purpose before building it.
+- economy.regionalCard/nationalCard/governmentRegulation only store a numeric
+  effectId, not which card/regulation is active - so Rule-LK 36's "Current Market
+  Conditions" display (which needs to print the card's *name*, e.g. "Northern
+  Development Programme (+30%)") has nothing to read that name from once the
+  card/regulation has moved on. Would need either a stored name/id lookup at
+  display time, or a name field added directly to ActiveEffect.

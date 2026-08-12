@@ -713,6 +713,216 @@ void updatePropertyMarket(GameState *gs) {
 }
 ```
 
+### Government Regulations (Rule-LK 24, Section 2.7)
+
+Unlike the card decks, the 8 regulations don't share one common percentage field worth putting in
+a struct — each effect is a different shape (interest rate, a cost, a one-off tax, a purchase
+restriction). So this is just a plain name array plus a big if/else picked by a random index:
+
+```c
+// Table 4-equivalent for Section 2.7 - just the 8 regulation names, since (unlike the
+// card decks) each regulation's effect is a different shape and doesn't share one
+// common percentage field worth storing in a struct.
+static char *governmentRegulationNames[8] = {
+    "Increase Property Tax",
+    "Reduce Loan Interest",
+    "Housing Subsidy",
+    "Luxury Property Tax",
+    "Railway Modernization",
+    "Electricity Tariff Revision",
+    "Insurance Regulation",
+    "Anti-Speculation Act",
+};
+
+// Called every 20 rounds (Section 2.7). Picks one of the 8 regulations at random and
+// applies its effect (Rule-LK 24).
+void governmentRegulationChange(GameState *gamestate) {
+
+    int regulationIndex = rand() % 8;
+
+    printf("Government Regulation\n\n%s\n\n", governmentRegulationNames[regulationIndex]);
+
+    // 1) Mark this regulation as the active one. Rule-LK 24 doesn't state how long a
+    //    regulation stays in force, so this reuses its own 20-round draw interval,
+    //    same as how the National/Regional cards reuse their own draw interval.
+    gamestate -> economy.governmentRegulation.isActive = 1;
+    gamestate -> economy.governmentRegulation.effectId = regulationIndex;
+    gamestate -> economy.governmentRegulation.targetGroup = GROUP_NONE;
+    gamestate -> economy.governmentRegulation.roundsRemaining = GOVERNMENT_REGULATION_DURATION_ROUNDS;
+
+    // 2) Apply whichever regulation was picked.
+    if (regulationIndex == 0) {
+        // Increase Property Tax - Income Tax increases by 50%.
+        // ...still to do: there's no stored Income Tax amount anywhere on the board,
+        // and Rule 11's tax collection isn't implemented in finance.c yet either, so
+        // there's nothing here to increase by 50% - see yetToMake.txt.
+
+    } else if (regulationIndex == 1) {
+        // Reduce Loan Interest - interest decreases by 2%, future loans only.
+        gamestate -> economy.baseInterestRate = gamestate -> economy.baseInterestRate - 2;
+        if (gamestate -> economy.baseInterestRate < 0) {
+            gamestate -> economy.baseInterestRate = 0;
+        }
+
+    } else if (regulationIndex == 2) {
+        // Housing Subsidy - house construction costs reduce 30%, board-wide.
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_PROPERTY) {
+                gamestate -> board[i].houseCost = (gamestate -> board[i].houseCost * 70) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (regulationIndex == 3) {
+        // Luxury Property Tax - hotels pay a tax of 25% of property value.
+        // ASSUMPTION - "annual maintenance tax" implies this should repeat every
+        // round, but there's no round-tick handler yet to keep charging it (see
+        // yetToMake.txt), so it's charged once, immediately, instead of never at all.
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            Square *square = &gamestate -> board[i];
+            if (square -> hasHotel == 1 && square -> ownerId != -1) {
+                int tax = (square -> currentValue * 25) / 100;
+                gamestate -> players[square -> ownerId].cash = gamestate -> players[square -> ownerId].cash - tax;
+            }
+            i = i + 1;
+        }
+
+    } else if (regulationIndex == 4) {
+        // Railway Modernization - railway rents increase 25%, board-wide.
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_RAILWAY) {
+                gamestate -> board[i].currentRent = (gamestate -> board[i].currentRent * 125) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (regulationIndex == 5) {
+        // Electricity Tariff Revision - utility rents increase 20%, board-wide.
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_UTILITY) {
+                gamestate -> board[i].currentRent = (gamestate -> board[i].currentRent * 120) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (regulationIndex == 6) {
+        // Insurance Regulation - premiums decrease 15%, coverage unchanged.
+        // ...still to do: getInsurance() (finance.c) computes its premium from a
+        // fixed 5/10/15% table with no discount input yet - same gap as the
+        // Insurance Discount National Event Card.
+
+    } else {
+        // regulationIndex == 7: Anti-Speculation Act - players may own at most three
+        // undeveloped properties; additional purchases need development within 5
+        // rounds.
+        // ...still to do: enforcing this needs a purchase-time check in players.c/
+        // game.c, neither of which exist yet.
+    }
+}
+```
+
+### Disasters (Rule-LK 10, Section 2.2)
+
+```c
+// Called every 10 rounds (Section 2.2 / Rule-LK 10). Picks one of the 5 disaster
+// types and damages one randomly selected developed property. An insured property
+// (if its policy covers that disaster type) gets compensation credited immediately;
+// otherwise the owner pays the full repair cost once they can afford it (Rule-LK 11).
+void triggerDisaster(GameState *gamestate) {
+
+    // 1) Build a list of every developed property (has a house or a hotel) and pick
+    //    one at random. Nothing to damage if nothing has been built yet.
+    int developedSquares[BOARD_SIZE];
+    int developedCount = 0;
+    int i = 0;
+    while (i < BOARD_SIZE) {
+        if (gamestate -> board[i].numHouses > 0 || gamestate -> board[i].hasHotel == 1) {
+            developedSquares[developedCount] = i;
+            developedCount = developedCount + 1;
+        }
+        i = i + 1;
+    }
+
+    if (developedCount == 0) {
+        return;
+    }
+
+    int squareIndex = developedSquares[rand() % developedCount];
+    Square *square = &gamestate -> board[squareIndex];
+
+    DisasterType disaster = rand() % 5;
+    char *disasterNames[5] = { "Fire", "Flood", "Riot", "Building Collapse", "Electrical Failure" };
+
+    printf("Disaster\n\n%s\n\nAffected Property :\n%s\n\n", disasterNames[disaster], square -> name);
+
+    // 2) Mark the property damaged - Rule-LK 11 says a damaged building can't collect
+    //    rent until it's repaired.
+    square -> isDamaged = 1;
+
+    // 3) Work out the repair cost.
+    // ASSUMPTION - the brief never gives a repair cost formula, so this reuses the
+    // same 10%-of-current-value figure Rule-LK 17 already uses for renovation.
+    int repairCost = (square -> currentValue * 10) / 100;
+
+    // 4) Check whether this property's insurance policy actually covers this
+    //    disaster type (Table 10 / Section 1.2). Building Collapse and Electrical
+    //    Failure aren't listed under either policy's "Protect Against" list, so
+    //    they're never covered - the owner always pays for those two.
+    int isCovered = 0;
+    if (square -> insurancePolicy == INSURANCE_BASIC) {
+        if (disaster == DISASTER_FIRE || disaster == DISASTER_FLOOD) {
+            isCovered = 1;
+        }
+    } else if (square -> insurancePolicy == INSURANCE_COMPREHENSIVE) {
+        if (disaster == DISASTER_FIRE || disaster == DISASTER_FLOOD || disaster == DISASTER_RIOT) {
+            isCovered = 1;
+        }
+    } else if (square -> insurancePolicy == INSURANCE_BUSINESS_INTERRUPTION) {
+        if (square -> hasHotel == 1) {
+            isCovered = 1;
+        }
+    }
+
+    if (isCovered == 1 && square -> ownerId != -1) {
+
+        // 5) Pay out compensation instead of charging the owner (Rule-LK 10).
+        int compensationPercentage = 80;
+        if (square -> insurancePolicy == INSURANCE_COMPREHENSIVE) {
+            compensationPercentage = 100;
+        } else if (square -> insurancePolicy == INSURANCE_BUSINESS_INTERRUPTION) {
+            compensationPercentage = 100;
+        }
+
+        int compensation = (repairCost * compensationPercentage) / 100;
+        gamestate -> players[square -> ownerId].cash = gamestate -> players[square -> ownerId].cash + compensation;
+        square -> isDamaged = 0; // repaired immediately using the claim
+
+        printf("Insurance Claim Approved.\nCompensation Paid :\nLKR %d.\n\n", compensation);
+
+    } else if (square -> ownerId != -1) {
+
+        // 6) Uninsured (or this disaster type isn't covered) - the owner pays in
+        //    full, once they can afford it (Rule-LK 11: repairs happen automatically
+        //    once the owner has sufficient funds).
+        if (gamestate -> players[square -> ownerId].cash >= repairCost) {
+            gamestate -> players[square -> ownerId].cash = gamestate -> players[square -> ownerId].cash - repairCost;
+            square -> isDamaged = 0;
+            printf("Repair Cost Paid :\nLKR %d.\n\n", repairCost);
+        } else {
+            printf("Owner cannot yet afford the LKR %d repair - property remains damaged.\n\n", repairCost);
+        }
+    }
+
+    // ...still to do: Business Interruption Insurance should also cover "lost rental
+    // income for five rounds" on top of the repair cost - that needs a per-square
+    // rounds-remaining tracker and a round-tick handler that don't exist yet.
+}
+```
+
 ---
 
 ## 7. `players.c` — Strategy Decision Logic (Section 3)
@@ -943,39 +1153,97 @@ void playTurn(GameState *gs, int playerIndex) {
     // 8. End turn — nothing more to do, function returns
 }
 
+// Implemented in players.c: asks this player's strategy how much they're willing to
+// bid in an ongoing auction. Should return an amount at least currentBid +
+// AUCTION_INCREMENT to place a real bid, or anything less to signal withdrawing.
+int decideAuctionBid(GameState *gamestate, int playerIndex, int squareIndex, int currentBid);
+
 // Rule 6, Rule-LK 19-23: runs an auction for one property among all solvent players.
-void runAuction(GameState *gs, int squareIndex) {
-    Square *sq = &gs->board[squareIndex];
-    int currentBid = sq->currentValue / 2;   // opening bid = 50% of market value
-    int highestBidder = -1;
-    int stillIn[NUM_PLAYERS] = { 1, 1, 1, 1 };
+void runAuction(GameState *gamestate, int squareIndex) {
 
-    printf("Auction Started.\n\nProperty :\n%s\n\nOpening Bid :\nLKR %d.\n\n", sq->name, currentBid);
+    Square *square = &gamestate -> board[squareIndex];
 
-    int activeBidders = NUM_PLAYERS;
-    while (activeBidders > 1) {
-        for (int i = 0; i < NUM_PLAYERS; i++) {
-            if (!stillIn[i] || gs->players[i].isBankrupt) continue;
+    // 1) Opening bid is 50% of market value (Rule-LK 19).
+    int currentBid = square -> currentValue / 2;
+    int highestBidder = -1;  // -1 means nobody has bid yet
 
-            int bid = decideAuctionBid(gs, i, squareIndex, currentBid); // players.c
-            if (bid > currentBid) {
-                currentBid = bid;
-                highestBidder = i;
-                printf("%s bids LKR %d.\n", gs->players[i].name, bid);
-            } else {
-                stillIn[i] = 0;
-                activeBidders--;
-                printf("%s withdraws.\n", gs->players[i].name);
+    printf("Auction Started.\n\nProperty :\n%s\n\nOpening Bid :\nLKR %d.\n\n", square -> name, currentBid);
+
+    // 2) Bankrupt players never take part (Rule 6). Everyone else starts in.
+    int stillIn[NUM_PLAYERS];
+    int p = 0;
+    while (p < NUM_PLAYERS) {
+        if (gamestate -> players[p].isBankrupt == 1) {
+            stillIn[p] = 0;
+        } else {
+            stillIn[p] = 1;
+        }
+        p = p + 1;
+    }
+
+    // 3) Keep going around the table until only the current leader (or nobody) is
+    //    left standing - a withdrawal is permanent (Rule-LK 21).
+    int auctionOngoing = 1;
+    while (auctionOngoing == 1) {
+
+        int somebodyRaisedThisPass = 0;
+        int i = 0;
+        while (i < NUM_PLAYERS) {
+
+            // The current leader doesn't need to bid against themselves - without
+            // this check they'd get asked again next pass, fail to beat their own
+            // standing bid, and be wrongly eliminated.
+            if (stillIn[i] == 1 && i != highestBidder) {
+
+                int bid = decideAuctionBid(gamestate, i, squareIndex, currentBid);
+
+                // A real bid must clear the minimum increment (Rule-LK 20) and never
+                // exceed the player's cash on hand (Rule-LK 22).
+                int isValidBid = 0;
+                if (bid >= currentBid + AUCTION_INCREMENT && bid <= gamestate -> players[i].cash) {
+                    isValidBid = 1;
+                }
+
+                if (isValidBid == 1) {
+                    currentBid = bid;
+                    highestBidder = i;
+                    somebodyRaisedThisPass = 1;
+                    printf("%s bids LKR %d.\n", gamestate -> players[i].name, currentBid);
+                } else {
+                    stillIn[i] = 0;
+                    printf("%s withdraws.\n", gamestate -> players[i].name);
+                }
             }
+
+            i = i + 1;
+        }
+
+        // 4) Count how many players are still standing.
+        int remaining = 0;
+        int j = 0;
+        while (j < NUM_PLAYERS) {
+            if (stillIn[j] == 1) {
+                remaining = remaining + 1;
+            }
+            j = j + 1;
+        }
+
+        if (remaining <= 1) {
+            auctionOngoing = 0;
+        }
+        if (somebodyRaisedThisPass == 0) {
+            auctionOngoing = 0;
         }
     }
 
-    if (highestBidder != -1) {
-        gs->players[highestBidder].cash -= currentBid;
-        sq->ownerId = highestBidder;
-        printf("%s wins the auction.\n", gs->players[highestBidder].name);
+    // 5) Award the property, or leave it with the Bank if nobody ever bid (Rule-LK 23).
+    if (highestBidder == -1) {
+        printf("\nNo bids were placed. Ownership remains with the Bank.\n");
+    } else {
+        gamestate -> players[highestBidder].cash = gamestate -> players[highestBidder].cash - currentBid;
+        square -> ownerId = highestBidder;
+        printf("\n%s wins the auction.\n", gamestate -> players[highestBidder].name);
     }
-    // else: Rule-LK 23 — ownership remains with the Bank (ownerId stays -1)
 }
 
 // Called once at the very end of every round — interest, depreciation, expiries, market ticks.
