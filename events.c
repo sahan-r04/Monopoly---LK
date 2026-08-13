@@ -26,14 +26,8 @@ static NationalEventCard nationalDeck[20] = {
     { 19, "National Disaster", 0, 0 },      // Random developed property gets damaged
 };
 
-// Called whenever a player lands on an Event square (Table 1). Draws the top card
-// (slot 0), applies its actual Appendix A effect, then sends that same card to the
-// bottom of the deck, per Appendix A: "the card shall be returned to the bottom of
-// the deck." Rent-multiplier cards stay active on the drawing player for the number
-// of rounds stated on the card (or NATIONAL_CARD_DURATION_ROUNDS if the card doesn't
-// state one); board-wide value/cost changes are applied immediately - reverting them
-// still needs a round-tick handler, same as the Rule-LK 35 gap on the Regional
-// Development Cards.
+// Called when a player lands on an Event square: draws the top card, applies its
+// Appendix A effect, then cycles it to the deck's bottom. Rent-multiplier cards stay active for their stated rounds (or NATIONAL_CARD_DURATION_ROUNDS); other changes apply immediately and aren't reverted yet (Rule-LK 35 gap).
 void drawNationalEventCard(GameState *gamestate, int playerIndex) {
 
     // 1) The top card is always sitting in slot 0.
@@ -42,9 +36,8 @@ void drawNationalEventCard(GameState *gamestate, int playerIndex) {
 
     printf("Economic Event \n\n%s\n\n ", drawnCard.name);
 
-    // 2) Apply this card's real effect (Appendix A). Matched by cardId, since the
-    //    deck reorders after every draw so the card is no longer always at the same
-    //    array index.
+    // 2) Apply this card's real effect (Appendix A), matched by cardId since the
+    //    deck reorders after every draw and the card isn't always at the same index.
     if (drawnCard.cardId == 0) {  // Tourism Hype
         // Hotels earn double rent for 5 rounds - only this player's own hotels.
         int i = 0;
@@ -74,21 +67,19 @@ void drawNationalEventCard(GameState *gamestate, int playerIndex) {
         player -> nationalCard.roundsRemaining = 5;
 
     } else if (drawnCard.cardId == 2) {  // Heavy Floods
-        // Random coastal property damaged.
-        // ASSUMPTION - Appendix A doesn't name exact squares, so "coastal" reuses the
-        // same coastal groups used for the Regional Development Cards (Yellow and
-        // Light Blue).
+        // Random coastal property damaged. ASSUMPTION - Appendix A doesn't name
+        // exact squares, so "coastal" reuses the Regional Cards' Yellow/Light Blue groups.
         int coastalSquares[6] = { 26, 27, 29, 6, 8, 9 };
         int pick = rand() % 6;
         gamestate -> board[coastalSquares[pick]].isDamaged = 1;
 
     } else if (drawnCard.cardId == 3) {  // Political Rally
-        // One random property closed for 2 rounds.
+        // One random property closed for 2 rounds - board.c's reopenClosedSquares()
+        // counts closedRoundsLeft down and reopens it automatically.
         int propertySquares[22] = { 1, 3, 6, 8, 9, 11, 13, 14, 16, 18, 19, 21, 23, 24, 26, 27, 29, 31, 32, 34, 37, 39 };
         int pick = rand() % 22;
         gamestate -> board[propertySquares[pick]].isDamaged = 1;
-        // ...still to do: reopening this property after 2 rounds needs a per-square
-        // round counter and a round-tick handler, neither of which exist yet.
+        gamestate -> board[propertySquares[pick]].closedRoundsLeft = 2;
 
     } else if (drawnCard.cardId == 4) {  // Stock Market Rise
         // All property values increase by 10% - board-wide, not just this player.
@@ -121,8 +112,8 @@ void drawNationalEventCard(GameState *gamestate, int playerIndex) {
         }
 
     } else if (drawnCard.cardId == 7) {  // Interest Rate Cut
-        // Loan interest reduced by 2% - only future loans (Rule-LK 13: existing loan
-        // rates remain unchanged).
+        // Loan interest reduced by 2% - only future loans (Rule-LK 13: existing
+        // loan rates remain unchanged).
         gamestate -> economy.baseInterestRate = gamestate -> economy.baseInterestRate - 2;
         if (gamestate -> economy.baseInterestRate < 0) {
             gamestate -> economy.baseInterestRate = 0;
@@ -155,9 +146,8 @@ void drawNationalEventCard(GameState *gamestate, int playerIndex) {
         player -> nationalCard.roundsRemaining = 3;
 
     } else if (drawnCard.cardId == 11) {  // Foreign Funding
-        // Commercial property values increase by 15%.
-        // ASSUMPTION - Appendix A doesn't define "commercial property" separately from
-        // an ordinary property, so this applies to every property square board-wide.
+        // Commercial property values increase by 15%. ASSUMPTION - Appendix A
+        // doesn't define "commercial property" separately, so this applies board-wide.
         int i = 0;
         while (i < BOARD_SIZE) {
             if (gamestate -> board[i].type == SQUARE_PROPERTY) {
@@ -191,15 +181,15 @@ void drawNationalEventCard(GameState *gamestate, int playerIndex) {
         player -> nationalCard.roundsRemaining = NATIONAL_CARD_DURATION_ROUNDS;
 
     } else if (drawnCard.cardId == 14) {  // Labour Strike
-        // Construction suspended for 2 rounds.
-        // ...still to do: enforcing this needs a global "construction suspended" flag
-        // that the building-construction logic in players.c/game.c can check, which
-        // doesn't exist yet.
+        // Construction suspended for 2 rounds - decideConstruction() (players.c)
+        // checks this before allowing a build.
+        gamestate -> economy.constructionSuspendedRoundsLeft = 2;
 
     } else if (drawnCard.cardId == 15) {  // Insurance Discount
-        // Premiums reduced by 20%.
-        // ...still to do: getInsurance() in finance.c computes its premium percentage
-        // from a fixed 5/10/15% table and has no discount input yet.
+        // Premiums reduced by 20%. ASSUMPTION - insurancePremiumDiscountPercent
+        // is stored on Economy (not Player), so this discount applies to every
+        // player's premiums rather than just the drawer's.
+        gamestate -> economy.insurancePremiumDiscountPercent = 20;
 
     } else if (drawnCard.cardId == 16) {  // Property Revaluation
         // Random property group appreciates by 15%.
@@ -255,10 +245,8 @@ void drawNationalEventCard(GameState *gamestate, int playerIndex) {
     nationalDeck[19] = drawnCard;
 }
 
-// Table 4 — all 12 Regional Development Cards.
-// NOTE: the struct only models a single flat percentage, so "Water Shortage" (which has
-// two different percentages for two different things) is recorded with its primary
-// number here — the comment on each line still states the real Table 4 effect in full.
+// Table 4 - all 12 Regional Development Cards. The struct only stores one flat
+// percentage, so Water Shortage's second number is applied separately below.
 static RegionalDevelopmentCard regionalDeck[12] = {
     { 0, "Southern Tourism Boom", 40 },     // Galle Fort, Unawatuna, Hikkaduwa rental income +40%
     { 1, "Port City Expansion", 25 },     // Pettah, Maradana, Colombo Fort Station values +25%
@@ -266,18 +254,86 @@ static RegionalDevelopmentCard regionalDeck[12] = {
     { 3, "Northern Development Programme", 30 },    // Jaffna Town, Nallur, Trincomalee values +30%
     { 4, "Tea Export Boom", 35 },     // Nuwara Eliya value +35%
     { 5, "Airport Expansion", 30 },     // Negombo, Katunayake, Ja-Ela rents +30%
-    { 6, "University City Growth", 20 },     // Peradeniya, Kandy City values +20%
+    { 6, "University City Growth", 20 },     //Peradeniya, Kandy City values +20%
     { 7, "Beach Pollution", -30 },     // Southern coastal rents -30%
-    { 8, "Flood Damage", -20 },     // Low-lying coastal properties lose 20% value
+    { 8, "Flood Damage", -20 },     //Low-lying coastal properties lose 20% value
     { 9, "Transport Strike", -40 },     // Railway revenue reduced by 40%
-    { 10, "Electricity Tariff Increase", 25 },     // Utility rent +25%
+    { 10, "Electricity Tariff Increase", 25 },     //Utility rent +25%
     { 11, "Water Shortage", 20 },     // Water utility revenue +20%; surrounding properties -10%
 };
 
-// Called every 15 rounds (Section 2.10). Drawn the same way as drawNationalEventCard:
-// the top card (slot 0) is used, then sent to the bottom of the deck. The effect stays
-// active for REGIONAL_CARD_DURATION_ROUNDS rounds, for the whole economy (unlike a
-// national card, which only affects the one player who drew it).
+// Table 4 target lookup shared by drawRegionalDevelopmentCard() and
+// revertRegionalCardEffect(), so both stay in sync off one list (up to 4
+// squares per card, unused slots -1).
+static void getRegionalCardTargets(int cardId, int targetSquares[4], int *isRentEffect) {
+    targetSquares[0] = -1;
+    targetSquares[1] = -1;
+    targetSquares[2] = -1;
+    targetSquares[3] = -1;
+
+    if (cardId == 0) {  // Southern Tourism Boom
+        targetSquares[0] = 26;
+        targetSquares[1] = 27;
+        targetSquares[2] = 29;
+        *isRentEffect = 1;
+    } else if (cardId == 1) {  // Port City Expansion
+        targetSquares[0] = 1;
+        targetSquares[1] = 3;
+        targetSquares[2] = 5;
+        *isRentEffect = 0;
+    } else if (cardId == 2) {  // IT Industry Growth
+        targetSquares[0] = 13;
+        targetSquares[1] = 11;
+        targetSquares[2] = 14;
+        *isRentEffect = 0;
+    } else if (cardId == 3) {  // Northern Development Programme
+        targetSquares[0] = 31;
+        targetSquares[1] = 32;
+        targetSquares[2] = 34;
+        *isRentEffect = 0;
+    } else if (cardId == 4) {  // Tea Export Boom
+        targetSquares[0] = 37;
+        *isRentEffect = 0;
+    } else if (cardId == 5) {  // Airport Expansion
+        targetSquares[0] = 16;
+        targetSquares[1] = 18;
+        targetSquares[2] = 19;
+        *isRentEffect = 1;
+    } else if (cardId == 6) {  // University City Growth
+        targetSquares[0] = 23;
+        targetSquares[1] = 21;
+        *isRentEffect = 0;
+    } else if (cardId == 7) {  // Beach Pollution - ASSUMPTION: same southern
+        // coastal group as Southern Tourism Boom (Galle Fort, Unawatuna, Hikkaduwa).
+        targetSquares[0] = 26;
+        targetSquares[1] = 27;
+        targetSquares[2] = 29;
+        *isRentEffect = 1;
+    } else if (cardId == 8) {  // Flood Damage - ASSUMPTION: Light Blue group
+        // (Bambalapitiya, Wellawatte, Mount Lavinia), the low-lying Colombo coast.
+        targetSquares[0] = 6;
+        targetSquares[1] = 8;
+        targetSquares[2] = 9;
+        *isRentEffect = 0;
+    } else if (cardId == 9) {  // Transport Strike
+        targetSquares[0] = 5;
+        targetSquares[1] = 15;
+        targetSquares[2] = 25;
+        targetSquares[3] = 35;
+        *isRentEffect = 1;
+    } else if (cardId == 10) {  // Electricity Tariff Increase
+        targetSquares[0] = 12;
+        *isRentEffect = 1;
+    } else {  // cardId == 11: Water Shortage - National Water Supply and
+        // Drainage Board revenue +20%; the surrounding -10% is a second number
+        // the deck can't store, handled separately by its caller.
+        targetSquares[0] = 28;
+        *isRentEffect = 1;
+    }
+}
+
+// Called every 15 rounds (Section 2.10), drawn like drawNationalEventCard (top card
+// used, then cycled to the bottom); stays active for the whole economy, unlike a national card which only affects the drawer.
 void drawRegionalDevelopmentCard(GameState *gamestate) {
 
     // 1) The top card is always sitting in slot 0.
@@ -285,82 +341,18 @@ void drawRegionalDevelopmentCard(GameState *gamestate) {
 
     printf("Regional Development Card \n\n%s\n\n ", drawnCard.name);
 
-    // 2) Mark that card as the active regional effect.
+    // 2) Mark that card as the active regional effect. cardId is stored so
+    //    Rule-LK 35 reversion can look its target squares back up later.
     gamestate -> economy.regionalCard.isActive = 1;
     gamestate -> economy.regionalCard.effectId = drawnCard.valuePercentageChange;
+    gamestate -> economy.regionalCard.cardId = drawnCard.cardId;
     gamestate -> economy.regionalCard.targetGroup = GROUP_NONE;
     gamestate -> economy.regionalCard.roundsRemaining = REGIONAL_CARD_DURATION_ROUNDS;
 
-    // 3) Work out which squares this card affects (Table 4) and whether its percentage
-    //    changes rental income or property/utility value. Up to 4 squares per card;
-    //    unused slots stay -1. Matched by cardId, since the deck reorders after every
-    //    draw so the card is no longer always at the same array index.
-    int targetSquares[4] = { -1, -1, -1, -1 };
+    // 3) Work out which squares this card affects and whether it changes rent or value.
+    int targetSquares[4];
     int isRentEffect = 0;
-
-    if (drawnCard.cardId == 0) {  // Southern Tourism Boom
-        targetSquares[0] = 26;
-        targetSquares[1] = 27;
-        targetSquares[2] = 29;
-        isRentEffect = 1;
-    } else if (drawnCard.cardId == 1) {  // Port City Expansion
-        targetSquares[0] = 1;
-        targetSquares[1] = 3;
-        targetSquares[2] = 5;
-        isRentEffect = 0;
-    } else if (drawnCard.cardId == 2) {  // IT Industry Growth
-        targetSquares[0] = 13;
-        targetSquares[1] = 11;
-        targetSquares[2] = 14;
-        isRentEffect = 0;
-    } else if (drawnCard.cardId == 3) {  // Northern Development Programme
-        targetSquares[0] = 31;
-        targetSquares[1] = 32;
-        targetSquares[2] = 34;
-        isRentEffect = 0;
-    } else if (drawnCard.cardId == 4) {  // Tea Export Boom
-        targetSquares[0] = 37;
-        isRentEffect = 0;
-    } else if (drawnCard.cardId == 5) {  // Airport Expansion
-        targetSquares[0] = 16;
-        targetSquares[1] = 18;
-        targetSquares[2] = 19;
-        isRentEffect = 1;
-    } else if (drawnCard.cardId == 6) {  // University City Growth
-        targetSquares[0] = 23;
-        targetSquares[1] = 21;
-        isRentEffect = 0;
-    } else if (drawnCard.cardId == 7) {  // Beach Pollution
-        // ASSUMPTION - Table 4 doesn't name exact squares, so this targets the same
-        // southern coastal group as Southern Tourism Boom (Galle Fort, Unawatuna,
-        // Hikkaduwa).
-        targetSquares[0] = 26;
-        targetSquares[1] = 27;
-        targetSquares[2] = 29;
-        isRentEffect = 1;
-    } else if (drawnCard.cardId == 8) {  // Flood Damage
-        // ASSUMPTION - Table 4 doesn't name exact squares, so this targets the Light
-        // Blue group (Bambalapitiya, Wellawatte, Mount Lavinia), the low-lying Colombo
-        // coast.
-        targetSquares[0] = 6;
-        targetSquares[1] = 8;
-        targetSquares[2] = 9;
-        isRentEffect = 0;
-    } else if (drawnCard.cardId == 9) {  // Transport Strike
-        targetSquares[0] = 5;
-        targetSquares[1] = 15;
-        targetSquares[2] = 25;
-        targetSquares[3] = 35;
-        isRentEffect = 1;
-    } else if (drawnCard.cardId == 10) {  // Electricity Tariff Increase
-        targetSquares[0] = 12;
-        isRentEffect = 1;
-    } else {  // cardId == 11: Water Shortage - National Water Supply and Drainage
-        // Board revenue +20%. The surrounding-properties -10% is a second number
-        // that the deck can't store, so it's applied separately in step 5 below.
-        targetSquares[0] = 28;
-        isRentEffect = 1;
-    }
+    getRegionalCardTargets(drawnCard.cardId, targetSquares, &isRentEffect);
 
     // 4) Apply the card's percentage change to every square it targets.
     int i = 0;
@@ -377,18 +369,12 @@ void drawRegionalDevelopmentCard(GameState *gamestate) {
         i = i + 1;
     }
 
-    // 5) Water Shortage's second effect: the properties surrounding the water utility
-    // (Unawatuna, Hikkaduwa) lose 10% value. Table 4 gives this card two percentages,
-    // so the second one is hardcoded here rather than stored in regionalDeck.
+    // 5) Water Shortage's second effect: Unawatuna and Hikkaduwa (surrounding the
+    //    utility) lose 10% value - hardcoded here since regionalDeck stores only one number.
     if (drawnCard.cardId == 11) {  // Water Shortage
         gamestate -> board[27].currentValue = (gamestate -> board[27].currentValue * 90) / 100;
         gamestate -> board[29].currentValue = (gamestate -> board[29].currentValue * 90) / 100;
     }
-
-    // ...still to do (Rule-LK 35): once this card's 15 rounds expire, these squares
-    // should return to their normal market-adjusted values unless another active event
-    // is still influencing them. That needs a round-tick handler in game.c/finance.c
-    // that remembers each square's pre-event baseline - not part of drawing the card.
 
     // 6) Send the drawn card to the bottom of the deck: shift every other card up one
     //    slot, then place the drawn card in the now-empty last slot.
@@ -400,10 +386,40 @@ void drawRegionalDevelopmentCard(GameState *gamestate) {
     regionalDeck[11] = drawnCard;
 }
 
-// Called every 10 rounds (Section 2.3). Rolls a fresh inflation rate and applies it
-// to every property's price, rent and construction costs (Rule-LK 13/14). Existing
-// loan interest rates are untouched (Rule-LK 13) - only the base rate used for loans
-// taken out from now on moves.
+// Rule-LK 35: called once the active Regional Card's roundsRemaining reaches
+// 0 - divides its percentage back out of the same squares getRegionalCardTargets() found originally.
+void revertRegionalCardEffect(GameState *gamestate) {
+
+    int cardId = gamestate -> economy.regionalCard.cardId;
+    int percentageChange = gamestate -> economy.regionalCard.effectId;
+
+    int targetSquares[4];
+    int isRentEffect = 0;
+    getRegionalCardTargets(cardId, targetSquares, &isRentEffect);
+
+    int i = 0;
+    while (i < 4) {
+        if (targetSquares[i] != -1) {
+            Square *square = &gamestate -> board[targetSquares[i]];
+
+            if (isRentEffect == 1) {
+                square -> currentRent = (square -> currentRent * 100) / (100 + percentageChange);
+            } else {
+                square -> currentValue = (square -> currentValue * 100) / (100 + percentageChange);
+            }
+        }
+        i = i + 1;
+    }
+
+    // Water Shortage's second effect (Unawatuna/Hikkaduwa -10%) reverts separately.
+    if (cardId == 11) {
+        gamestate -> board[27].currentValue = (gamestate -> board[27].currentValue * 100) / 90;
+        gamestate -> board[29].currentValue = (gamestate -> board[29].currentValue * 100) / 90;
+    }
+}
+
+// Called every 10 rounds (Section 2.3): rolls a new inflation rate and applies it to
+// every property's price/rent/construction costs (Rule-LK 13/14) and future-loan interest, leaving existing loans untouched.
 void inflationChange(GameState *gamestate) {
 
     // 1) Pick a random inflation rate from the allowed list.
@@ -434,25 +450,19 @@ void inflationChange(GameState *gamestate) {
         i = i + 1;
     }
 
-    // 3) Loan interest rates move with inflation too, but only for loans taken out
-    //    from now on - takeLoan() (finance.c) only reads baseInterestRate at the
-    //    moment a new loan is created, so existing loans keep their locked-in rate.
+    // 3) Loan interest moves with inflation too, but only for future loans -
+    //    takeLoan() only reads baseInterestRate when a new loan is created.
     gamestate -> economy.baseInterestRate = (gamestate -> economy.baseInterestRate * (100 + gamestate -> economy.inflationRate)) / 100;
     if (gamestate -> economy.baseInterestRate < 0) {
         gamestate -> economy.baseInterestRate = 0;
     }
 
-    // ...still to do: Rule-LK 13 also lists "Insurance premiums" and "Repair costs."
-    // Insurance premiums don't need separate handling here - getInsurance()
-    // (finance.c) already computes them as a percentage of currentValue, so they
-    // inflate automatically once currentValue does. Repair costs have no stored
-    // field or system yet (see yetToMake.txt), so there's nothing to apply
-    // inflation to there.
+    // ...still to do: Rule-LK 13 also lists "Insurance premiums" (already inflate
+    // automatically via currentValue) and "Repair costs" (no stored field yet - see yetToMake.txt).
 }
 
-// Called every 10 rounds (Section 2.9). Picks a random property group for a Market
-// Boom and a different one for a Market Decline, then applies their Rule-LK 31/32
-// percentage changes to every square in those groups.
+// Called every 10 rounds (Section 2.9): picks a Market Boom group and a different
+// Market Decline group, then applies their Rule-LK 31/32 percentages to those squares.
 void propertyMarketChange(GameState *gamestate) {
 
     PropertyGroup allGroups[8] = {
@@ -460,16 +470,16 @@ void propertyMarketChange(GameState *gamestate) {
         GROUP_RED, GROUP_YELLOW, GROUP_GREEN, GROUP_DARK_BLUE
     };
 
-    // 1) Pick a boom group and a decline group - they must not be the same group,
-    //    and neither may repeat the group that had that same event last review
-    //    (Rule-LK 30).
+    // 1) Pick a boom group and a decline group, different from each other, from
+    //    whichever group had that same event last review (Rule-LK 30), and from
+    //    any group still cooling down from a previous boom/decline (Rule-LK 33).
     PropertyGroup boomGroup = allGroups[rand() % 8];
-    while (boomGroup == gamestate -> economy.lastBoomGroup) {
+    while (boomGroup == gamestate -> economy.lastBoomGroup || gamestate -> economy.groupCooldownRounds[boomGroup] > 0) {
         boomGroup = allGroups[rand() % 8];
     }
 
     PropertyGroup declineGroup = allGroups[rand() % 8];
-    while (declineGroup == boomGroup || declineGroup == gamestate -> economy.lastDeclineGroup) {
+    while (declineGroup == boomGroup || declineGroup == gamestate -> economy.lastDeclineGroup || gamestate -> economy.groupCooldownRounds[declineGroup] > 0) {
         declineGroup = allGroups[rand() % 8];
     }
 
@@ -486,9 +496,8 @@ void propertyMarketChange(GameState *gamestate) {
     gamestate -> economy.lastBoomGroup = boomGroup;
     gamestate -> economy.lastDeclineGroup = declineGroup;
 
-    // 3) Apply the Market Boom effect to every square in the boom group (Rule-LK 31)
-    //    and the Market Decline effect to every square in the decline group
-    //    (Rule-LK 32).
+    // 3) Apply the Market Boom effect (Rule-LK 31) to the boom group's squares and
+    //    the Market Decline effect (Rule-LK 32) to the decline group's squares.
     int i = 0;
     while (i < BOARD_SIZE) {
         Square *square = &gamestate -> board[i];
@@ -511,21 +520,58 @@ void propertyMarketChange(GameState *gamestate) {
         i = i + 1;
     }
 
-    // ...still to do: Rule-LK 32 also says auction starting prices drop 25% during a
-    // decline, but there's no stored "auction starting price" field, and Rule-LK 19's
-    // auction system (starting bid = 50% of market value) isn't built yet either -
-    // see yetToMake.txt.
-
-    // ...still to do (Rule-LK 33): a group shouldn't be reselected for 30 rounds, not
-    // just "not the same as last review." lastBoomGroup/lastDeclineGroup only
-    // remember the single most recent group, which stops immediate repeats but can't
-    // enforce a 30-round cooldown across all 8 groups - that needs a per-group
-    // rounds-since-used tracker that doesn't exist yet.
+    // ...still to do: Rule-LK 32's auction-starting-price -25% has no stored field,
+    // and Rule-LK 19's auction opening bid (runAuction, game.c) doesn't read a
+    // decline-adjusted starting price yet.
 }
 
-// Table 4-equivalent for Section 2.7 - just the 8 regulation names, since (unlike the
-// card decks) each regulation's effect is a different shape and doesn't share one
-// common percentage field worth storing in a struct.
+// Rule-LK 31/35: called once Market Boom's roundsRemaining reaches 0 -
+// divides its percentages back out of the boom group's squares, then starts
+// that group's Rule-LK 33 cooldown.
+void revertMarketBoomEffect(GameState *gamestate) {
+
+    PropertyGroup boomGroup = gamestate -> economy.marketBoom.targetGroup;
+
+    int i = 0;
+    while (i < BOARD_SIZE) {
+        Square *square = &gamestate -> board[i];
+        if (square -> group == boomGroup) {
+            square -> purchasePrice = (square -> purchasePrice * 100) / 115;
+            square -> mortgageValue = (square -> mortgageValue * 100) / 115;
+            square -> currentRent = (square -> currentRent * 100) / 125;
+            square -> houseCost = (square -> houseCost * 100) / 110;
+            square -> hotelCost = (square -> hotelCost * 100) / 110;
+            square -> currentValue = (square -> currentValue * 100) / 120;
+        }
+        i = i + 1;
+    }
+
+    gamestate -> economy.groupCooldownRounds[boomGroup] = GROUP_COOLDOWN_ROUNDS;
+}
+
+// Rule-LK 32/35: called once Market Decline's roundsRemaining reaches 0 -
+// divides its percentages back out of the decline group's squares, then
+// starts that group's Rule-LK 33 cooldown.
+void revertMarketDeclineEffect(GameState *gamestate) {
+
+    PropertyGroup declineGroup = gamestate -> economy.marketDecline.targetGroup;
+
+    int i = 0;
+    while (i < BOARD_SIZE) {
+        Square *square = &gamestate -> board[i];
+        if (square -> group == declineGroup) {
+            square -> currentValue = (square -> currentValue * 100) / 85;
+            square -> currentRent = (square -> currentRent * 100) / 80;
+            square -> mortgageValue = (square -> mortgageValue * 100) / 90;
+        }
+        i = i + 1;
+    }
+
+    gamestate -> economy.groupCooldownRounds[declineGroup] = GROUP_COOLDOWN_ROUNDS;
+}
+
+// Table 4-equivalent for Section 2.7: just the 8 names, since each regulation's
+// effect is a different shape with no shared percentage field worth storing.
 static char *governmentRegulationNames[8] = {
     "Increase Property Tax",
     "Reduce Loan Interest",
@@ -545,20 +591,19 @@ void governmentRegulationChange(GameState *gamestate) {
 
     printf("Government Regulation\n\n%s\n\n", governmentRegulationNames[regulationIndex]);
 
-    // 1) Mark this regulation as the active one. Rule-LK 24 doesn't state how long a
-    //    regulation stays in force, so this reuses its own 20-round draw interval,
-    //    same as how the National/Regional cards reuse their own draw interval.
+    // 1) Mark this regulation active. Rule-LK 24 doesn't state a duration, so this
+    //    reuses its own 20-round draw interval, like the National/Regional cards do.
+    //    cardId is stored so revertGovernmentRegulationEffect() can look it back up.
     gamestate -> economy.governmentRegulation.isActive = 1;
     gamestate -> economy.governmentRegulation.effectId = regulationIndex;
+    gamestate -> economy.governmentRegulation.cardId = regulationIndex;
     gamestate -> economy.governmentRegulation.targetGroup = GROUP_NONE;
     gamestate -> economy.governmentRegulation.roundsRemaining = GOVERNMENT_REGULATION_DURATION_ROUNDS;
 
     // 2) Apply whichever regulation was picked.
     if (regulationIndex == 0) {
-        // Increase Property Tax - Income Tax increases by 50%.
-        // ...still to do: there's no stored Income Tax amount anywhere on the board,
-        // and Rule 11's tax collection isn't implemented in finance.c yet either, so
-        // there's nothing here to increase by 50% - see yetToMake.txt.
+        // Increase Property Tax - Income Tax +50%.
+        gamestate -> economy.currentIncomeTaxAmount = (gamestate -> economy.currentIncomeTaxAmount * 150) / 100;
 
     } else if (regulationIndex == 1) {
         // Reduce Loan Interest - interest decreases by 2%, future loans only.
@@ -578,19 +623,9 @@ void governmentRegulationChange(GameState *gamestate) {
         }
 
     } else if (regulationIndex == 3) {
-        // Luxury Property Tax - hotels pay a tax of 25% of property value.
-        // ASSUMPTION - "annual maintenance tax" implies this should repeat every
-        // round, but there's no round-tick handler yet to keep charging it (see
-        // yetToMake.txt), so it's charged once, immediately, instead of never at all.
-        int i = 0;
-        while (i < BOARD_SIZE) {
-            Square *square = &gamestate -> board[i];
-            if (square -> hasHotel == 1 && square -> ownerId != -1) {
-                int tax = (square -> currentValue * 25) / 100;
-                gamestate -> players[square -> ownerId].cash = gamestate -> players[square -> ownerId].cash - tax;
-            }
-            i = i + 1;
-        }
+        // Luxury Property Tax - "annual" is read as repeating every round for as
+        // long as this regulation stays active; finance.c's applyRecurringLuxuryTax()
+        // (called from the round tick) does the actual charging, not here.
 
     } else if (regulationIndex == 4) {
         // Railway Modernization - railway rents increase 25%, board-wide.
@@ -613,24 +648,71 @@ void governmentRegulationChange(GameState *gamestate) {
         }
 
     } else if (regulationIndex == 6) {
-        // Insurance Regulation - premiums decrease 15%, coverage unchanged.
-        // ...still to do: getInsurance() (finance.c) computes its premium from a
-        // fixed 5/10/15% table with no discount input yet - same gap as the
-        // Insurance Discount National Event Card.
+        // Insurance Regulation - premiums -15%, read by getInsurance() (finance.c).
+        gamestate -> economy.insurancePremiumDiscountPercent = 15;
 
     } else {
-        // regulationIndex == 7: Anti-Speculation Act - players may own at most three
-        // undeveloped properties; additional purchases need development within 5
-        // rounds.
-        // ...still to do: enforcing this needs a purchase-time check in players.c/
-        // game.c, neither of which exist yet.
+        // regulationIndex == 7: Anti-Speculation Act - max 3 undeveloped properties
+        // per player, enforced at purchase time by decideToPurchase() (players.c).
+        gamestate -> economy.antiSpeculationActive = 1;
     }
 }
 
-// Called every 10 rounds (Section 2.2 / Rule-LK 10). Picks one of the 5 disaster
-// types and damages one randomly selected developed property. An insured property
-// (if its policy covers that disaster type) gets compensation credited immediately;
-// otherwise the owner pays the full repair cost once they can afford it (Rule-LK 11).
+// Rule-LK 35: called once the active Government Regulation's roundsRemaining
+// reaches 0 - reverts whichever regulation was in effect. Regulations 1
+// (Reduce Loan Interest) and 3 (Luxury Property Tax) need no reversion -
+// interest drift is treated as permanent like inflation, and Luxury Tax has
+// no ongoing value to undo once it stops being charged.
+void revertGovernmentRegulationEffect(GameState *gamestate) {
+
+    int regulationIndex = gamestate -> economy.governmentRegulation.cardId;
+
+    if (regulationIndex == 0) {
+        // Increase Property Tax - divide the 50% increase back out.
+        gamestate -> economy.currentIncomeTaxAmount = (gamestate -> economy.currentIncomeTaxAmount * 100) / 150;
+
+    } else if (regulationIndex == 2) {
+        // Housing Subsidy - divide the 30% house-cost cut back out.
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_PROPERTY) {
+                gamestate -> board[i].houseCost = (gamestate -> board[i].houseCost * 100) / 70;
+            }
+            i = i + 1;
+        }
+
+    } else if (regulationIndex == 4) {
+        // Railway Modernization - divide the 25% railway rent boost back out.
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_RAILWAY) {
+                gamestate -> board[i].currentRent = (gamestate -> board[i].currentRent * 100) / 125;
+            }
+            i = i + 1;
+        }
+
+    } else if (regulationIndex == 5) {
+        // Electricity Tariff Revision - divide the 20% utility rent boost back out.
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_UTILITY) {
+                gamestate -> board[i].currentRent = (gamestate -> board[i].currentRent * 100) / 120;
+            }
+            i = i + 1;
+        }
+
+    } else if (regulationIndex == 6) {
+        // Insurance Regulation - discount ends.
+        gamestate -> economy.insurancePremiumDiscountPercent = 0;
+
+    } else if (regulationIndex == 7) {
+        // Anti-Speculation Act - the 3-property cap is lifted.
+        gamestate -> economy.antiSpeculationActive = 0;
+    }
+}
+
+// Called every 10 rounds (Rule-LK 10): damages one random developed property with a
+// random disaster; an insured owner gets compensation, otherwise pays full repair (Rule-LK 11).
 void triggerDisaster(GameState *gamestate) {
 
     // 1) Build a list of every developed property (has a house or a hotel) and pick
@@ -662,15 +744,12 @@ void triggerDisaster(GameState *gamestate) {
     //    rent until it's repaired.
     square -> isDamaged = 1;
 
-    // 3) Work out the repair cost.
-    // ASSUMPTION - the brief never gives a repair cost formula, so this reuses the
-    // same 10%-of-current-value figure Rule-LK 17 already uses for renovation.
+    // 3) Work out the repair cost. ASSUMPTION - no formula is given, so this reuses
+    //    Rule-LK 17's 10%-of-current-value figure (already used for renovation).
     int repairCost = (square -> currentValue * 10) / 100;
 
-    // 4) Check whether this property's insurance policy actually covers this
-    //    disaster type (Table 10 / Section 1.2). Building Collapse and Electrical
-    //    Failure aren't listed under either policy's "Protect Against" list, so
-    //    they're never covered - the owner always pays for those two.
+    // 4) Check whether the insurance policy covers this disaster type (Table 10).
+    //    Building Collapse and Electrical Failure aren't covered by either policy.
     int isCovered = 0;
     if (square -> insurancePolicy == INSURANCE_BASIC) {
         if (disaster == DISASTER_FIRE || disaster == DISASTER_FLOOD) {
@@ -704,20 +783,238 @@ void triggerDisaster(GameState *gamestate) {
 
     } else if (square -> ownerId != -1) {
 
-        // 6) Uninsured (or this disaster type isn't covered) - the owner pays in
-        //    full, once they can afford it (Rule-LK 11: repairs happen automatically
-        //    once the owner has sufficient funds).
+        // 6) Uninsured (or not covered), the owner pays in full once they can afford
+        //    it (Rule-LK 11: repairs happen automatically once funds are sufficient)
         if (gamestate -> players[square -> ownerId].cash >= repairCost) {
             gamestate -> players[square -> ownerId].cash = gamestate -> players[square -> ownerId].cash - repairCost;
             square -> isDamaged = 0;
             printf("Repair Cost Paid :\nLKR %d.\n\n", repairCost);
         } else {
-            printf("Owner cannot yet afford the LKR %d repair - property remains damaged.\n\n", repairCost);
+            printf("Owner cannot yet afford the LKR %d repair - Property remains damaged!\n\n", repairCost);
         }
     }
 
-    // ...still to do: Business Interruption Insurance should also cover "lost rental
-    // income for five rounds" on top of the repair cost - that needs a per-square
-    // rounds-remaining tracker and a round-tick handler that don't exist yet.
+    // ...still to do: Business Interruption should also cover 5 rounds of lost rent -
+    // needs a per-square rounds-remaining tracker and round-tick handler, neither built yet.
 }
 
+// Rule-LK 18: a second, separate deck of Economic Events from Appendix A's
+// National Event Cards, triggered every 15 rounds. ASSUMPTION - only the 8
+// event names were available to work from (no effect wording), so every
+// effect below was invented by analogy to the closest-matching National/
+// Regional card already in the codebase; see assumptions.txt.
+static EconomicEventCard economicDeck[8] = {
+    { 0, "Tourism Boom", 0 },                   // Hotel rent +30%, board-wide
+    { 1, "Fuel Crisis", 0 },                    // Railway rent +30%, board-wide
+    { 2, "Heavy Monsoon", 0 },                  // Random developed property damaged
+    { 3, "Economic Recession", 0 },             // Property values -10%, board-wide
+    { 4, "Stock Market Boom", 0 },               // Property values +10%, board-wide
+    { 5, "Government Housing Programme", 0 },   // House construction cost -20%
+    { 6, "Foreign Investment", 1000 },          // Every player receives LKR 1000
+    { 7, "Political Unrest", 0 },               // Construction suspended for 3 rounds
+};
+
+// Draws the top card, applies its effect economy-wide, then cycles it to the
+// bottom - same top/bottom pattern as the other two decks. Unlike National/
+// Regional cards, these apply immediately and permanently rather than
+// expiring, since Rule-LK 18 gives no duration figure the way Sections
+// 2.7/2.9/2.10 do for the periodic systems that DO expire.
+void drawEconomicEvent(GameState *gamestate) {
+
+    EconomicEventCard drawnCard = economicDeck[0];
+
+    printf("Economic Event\n\n%s\n\n", drawnCard.name);
+
+    if (drawnCard.cardId == 0) {  // Tourism Boom
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].hasHotel == 1) {
+                gamestate -> board[i].currentRent = (gamestate -> board[i].currentRent * 130) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (drawnCard.cardId == 1) {  // Fuel Crisis
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_RAILWAY) {
+                gamestate -> board[i].currentRent = (gamestate -> board[i].currentRent * 130) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (drawnCard.cardId == 2) {  // Heavy Monsoon
+        int developedSquares[BOARD_SIZE];
+        int developedCount = 0;
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].numHouses > 0 || gamestate -> board[i].hasHotel == 1) {
+                developedSquares[developedCount] = i;
+                developedCount = developedCount + 1;
+            }
+            i = i + 1;
+        }
+        if (developedCount > 0) {
+            int pick = rand() % developedCount;
+            gamestate -> board[developedSquares[pick]].isDamaged = 1;
+        }
+
+    } else if (drawnCard.cardId == 3) {  // Economic Recession
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_PROPERTY) {
+                gamestate -> board[i].currentValue = (gamestate -> board[i].currentValue * 90) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (drawnCard.cardId == 4) {  // Stock Market Boom
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_PROPERTY) {
+                gamestate -> board[i].currentValue = (gamestate -> board[i].currentValue * 110) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (drawnCard.cardId == 5) {  // Government Housing Programme
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            if (gamestate -> board[i].type == SQUARE_PROPERTY) {
+                gamestate -> board[i].houseCost = (gamestate -> board[i].houseCost * 80) / 100;
+            }
+            i = i + 1;
+        }
+
+    } else if (drawnCard.cardId == 6) {  // Foreign Investment
+        int i = 0;
+        while (i < NUM_PLAYERS) {
+            gamestate -> players[i].cash = gamestate -> players[i].cash + drawnCard.cashBonus;
+            i = i + 1;
+        }
+
+    } else {  // cardId == 7: Political Unrest
+        gamestate -> economy.constructionSuspendedRoundsLeft = 3;
+    }
+
+    int j = 0;
+    while (j < 7) {
+        economicDeck[j] = economicDeck[j + 1];
+        j = j + 1;
+    }
+    economicDeck[7] = drawnCard;
+}
+
+// Rule-LK 35: ticks down every active economy-level effect once per round and
+// reverts it once its rounds run out. Player-scoped National Event Card
+// effects are intentionally left out of this pass - see assumptions.txt.
+void revertExpiredEffects(GameState *gamestate) {
+
+    if (gamestate -> economy.regionalCard.isActive == 1) {
+        gamestate -> economy.regionalCard.roundsRemaining = gamestate -> economy.regionalCard.roundsRemaining - 1;
+        if (gamestate -> economy.regionalCard.roundsRemaining <= 0) {
+            revertRegionalCardEffect(gamestate);
+            gamestate -> economy.regionalCard.isActive = 0;
+        }
+    }
+
+    if (gamestate -> economy.governmentRegulation.isActive == 1) {
+        gamestate -> economy.governmentRegulation.roundsRemaining = gamestate -> economy.governmentRegulation.roundsRemaining - 1;
+        if (gamestate -> economy.governmentRegulation.roundsRemaining <= 0) {
+            revertGovernmentRegulationEffect(gamestate);
+            gamestate -> economy.governmentRegulation.isActive = 0;
+        }
+    }
+
+    if (gamestate -> economy.marketBoom.isActive == 1) {
+        gamestate -> economy.marketBoom.roundsRemaining = gamestate -> economy.marketBoom.roundsRemaining - 1;
+        if (gamestate -> economy.marketBoom.roundsRemaining <= 0) {
+            revertMarketBoomEffect(gamestate);
+            gamestate -> economy.marketBoom.isActive = 0;
+        }
+    }
+
+    if (gamestate -> economy.marketDecline.isActive == 1) {
+        gamestate -> economy.marketDecline.roundsRemaining = gamestate -> economy.marketDecline.roundsRemaining - 1;
+        if (gamestate -> economy.marketDecline.roundsRemaining <= 0) {
+            revertMarketDeclineEffect(gamestate);
+            gamestate -> economy.marketDecline.isActive = 0;
+        }
+    }
+
+    // Labour Strike / Political Unrest's construction suspension counts down
+    // the same way, even though it isn't stored as an ActiveEffect.
+    if (gamestate -> economy.constructionSuspendedRoundsLeft > 0) {
+        gamestate -> economy.constructionSuspendedRoundsLeft = gamestate -> economy.constructionSuspendedRoundsLeft - 1;
+    }
+}
+
+// Small helper for displayMarketConditions(): turns a PropertyGroup enum
+// value into its human-readable name for printing.
+static char *getGroupName(PropertyGroup group) {
+    if (group == GROUP_BROWN) {
+        return "Brown";
+    } else if (group == GROUP_LIGHT_BLUE) {
+        return "Light Blue";
+    } else if (group == GROUP_PINK) {
+        return "Pink";
+    } else if (group == GROUP_ORANGE) {
+        return "Orange";
+    } else if (group == GROUP_RED) {
+        return "Red";
+    } else if (group == GROUP_YELLOW) {
+        return "Yellow";
+    } else if (group == GROUP_GREEN) {
+        return "Green";
+    } else if (group == GROUP_DARK_BLUE) {
+        return "Dark Blue";
+    } else {
+        return "None";
+    }
+}
+
+// Rule-LK 36: prints every currently active economy-wide condition, by name,
+// for visibility into the simulation's current state.
+void displayMarketConditions(GameState *gamestate) {
+
+    printf("---- Current Market Conditions (Round %d) ----\n", gamestate -> economy.round);
+    printf("Inflation Rate : %d%%\n", gamestate -> economy.inflationRate);
+    printf("Base Loan Interest Rate : %d%%\n", gamestate -> economy.baseInterestRate);
+
+    if (gamestate -> economy.regionalCard.isActive == 1) {
+        int cardId = gamestate -> economy.regionalCard.cardId;
+        int k = 0;
+        while (k < 12) {
+            if (regionalDeck[k].cardId == cardId) {
+                printf("Regional Development Card Active : %s (%d%%, %d rounds left)\n",
+                    regionalDeck[k].name, gamestate -> economy.regionalCard.effectId, gamestate -> economy.regionalCard.roundsRemaining);
+            }
+            k = k + 1;
+        }
+    }
+
+    if (gamestate -> economy.governmentRegulation.isActive == 1) {
+        printf("Government Regulation Active : %s (%d rounds left)\n",
+            governmentRegulationNames[gamestate -> economy.governmentRegulation.cardId], gamestate -> economy.governmentRegulation.roundsRemaining);
+    }
+
+    if (gamestate -> economy.marketBoom.isActive == 1) {
+        printf("Market Boom Active : %s Group (%d rounds left)\n",
+            getGroupName(gamestate -> economy.marketBoom.targetGroup), gamestate -> economy.marketBoom.roundsRemaining);
+    }
+
+    if (gamestate -> economy.marketDecline.isActive == 1) {
+        printf("Market Decline Active : %s Group (%d rounds left)\n",
+            getGroupName(gamestate -> economy.marketDecline.targetGroup), gamestate -> economy.marketDecline.roundsRemaining);
+    }
+
+    if (gamestate -> economy.constructionSuspendedRoundsLeft > 0) {
+        printf("Construction Suspended : %d rounds left\n", gamestate -> economy.constructionSuspendedRoundsLeft);
+    }
+
+    if (gamestate -> economy.antiSpeculationActive == 1) {
+        printf("Anti-Speculation Act Active : max 3 undeveloped properties per player\n");
+    }
+
+    printf("-----------------------------------------------\n");
+}

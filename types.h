@@ -22,6 +22,8 @@
 #define NATIONAL_CARD_DURATION_ROUNDS           15
 #define REGIONAL_CARD_DURATION_ROUNDS           15
 #define GOVERNMENT_REGULATION_DURATION_ROUNDS   20
+#define INCOME_TAX_AMOUNT                      200
+#define GROUP_COOLDOWN_ROUNDS                   30
 
 typedef enum SquareType{
     SQUARE_START,
@@ -101,6 +103,7 @@ typedef struct Square {
     int buildingCondition;
     int propertyAge;
     int isDamaged;
+    int closedRoundsLeft; // Political Rally: rounds left before this square reopens
 
     //----Insurance----//
     InsuranceType insurancePolicy; //None, Basic, Comprehensive, Business Interruption
@@ -110,6 +113,8 @@ typedef struct Square {
 typedef struct ActiveEffect{
     int isActive; //0 or 1
     int effectId;
+    int cardId; // which card/regulation this is, so it can be looked up again to
+                // revert its effect once roundsRemaining reaches 0 (Rule-LK 35)
     PropertyGroup targetGroup;
     int roundsRemaining; //counting remaining rounds get effected
 } ActiveEffect;
@@ -155,6 +160,14 @@ typedef struct Economy{
     //----Rule 33-avoid repeating the same group----//
     PropertyGroup lastBoomGroup;
     PropertyGroup lastDeclineGroup;
+    int groupCooldownRounds[9]; // index 1-8 (PropertyGroup); rounds left before
+                                 // that group can be picked for a boom/decline again
+
+    //----Fields the various cards/regulations write into (Rule-LK 13/24)----//
+    int currentIncomeTaxAmount;        // starts at INCOME_TAX_AMOUNT (Rule 11)
+    int insurancePremiumDiscountPercent; // Insurance Discount / Insurance Regulation
+    int constructionSuspendedRoundsLeft; // Labour Strike
+    int antiSpeculationActive;          // Anti-Speculation Act (0 or 1)
 } Economy;
 
 typedef struct NationalEventCard {
@@ -172,10 +185,79 @@ typedef struct RegionalDevelopmentCard {
     int valuePercentageChange;   // +25 = property values in the targetted group rise 25%
 } RegionalDevelopmentCard;
 
+typedef struct EconomicEventCard {
+    int cardId;              // fixed ID (0-7), same purpose as the other two card types
+    char name[50];
+    int cashBonus;           // 0 if no direct cash effect
+} EconomicEventCard;
+
 typedef struct GameState{
     Square board[BOARD_SIZE];
     Player players[NUM_PLAYERS];
     Economy economy;
 } GameState;
+
+//===========================================================================
+// Function prototypes for every function that's called from a .c file other
+// than the one that defines it. Grouped by the file that actually defines
+// each function, so every other file can just #include "types.h" and call
+// them without writing its own duplicate forward declaration.
+//===========================================================================
+
+// ---- board.c ----
+void monopolyBoard(Square board[BOARD_SIZE]);
+int movePlayer(Player *p, int diceTotal);
+void sendToJail(Player *p);
+int getRentMultiplier(Square *square);
+void recalculateRentAfterConstruction(Square *square, int oldMultiplier, int newMultiplier);
+void reopenClosedSquares(GameState *gamestate);
+
+// ---- finance.c ----
+int calculateMaxLoan(GameState *gamestate, int playerIndex);
+void takeLoan(GameState *gamestate, int playerIndex, int amount, int collateralChoice[BOARD_SIZE]);
+void repayLoan(GameState *gamestate, int playerIndex, int amount);
+void applyLoanInterest(GameState *gamestate);
+void getInsurance(GameState *gamestate, int playerIndex, int squareIndex, InsuranceType policy);
+void payRent(GameState *gamestate, int playerIndex, int squareIndex);
+int calculateRailwayRent(GameState *gamestate, int squareIndex);
+int calculateUtilityRent(GameState *gamestate, int squareIndex, int diceTotal);
+void collectTax(GameState *gamestate, int playerIndex);
+int calculateNetWorth(GameState *gamestate, int playerIndex);
+void checkBankruptcy(GameState *gamestate);
+void retryDamageRepairs(GameState *gamestate);
+void applyRoundTickEffects(GameState *gamestate);
+
+// ---- events.c ----
+void drawNationalEventCard(GameState *gamestate, int playerIndex);
+void drawRegionalDevelopmentCard(GameState *gamestate);
+void inflationChange(GameState *gamestate);
+void propertyMarketChange(GameState *gamestate);
+void governmentRegulationChange(GameState *gamestate);
+void triggerDisaster(GameState *gamestate);
+void drawEconomicEvent(GameState *gamestate);
+void revertExpiredEffects(GameState *gamestate);
+void displayMarketConditions(GameState *gamestate);
+
+// ---- players.c ----
+int monopolyPlay(GameState *gamestate, int playerIndex, PropertyGroup group);
+int decideToPurchase(GameState *gamestate, int playerIndex, int squareIndex);
+int decideAuctionBid(GameState *gamestate, int playerIndex, int squareIndex, int currentBid);
+int decideLoanAmount(GameState *gamestate, int playerIndex);
+int decideLoanRepaymentAmount(GameState *gamestate, int playerIndex);
+int decideInsuranceTarget(GameState *gamestate, int playerIndex);
+InsuranceType decideInsurancePolicy(GameState *gamestate, int playerIndex, int squareIndex);
+int decideConstruction(GameState *gamestate, int playerIndex);
+int decideMortgage(GameState *gamestate, int playerIndex);
+
+// ---- game.c ----
+void initializingPlayers(GameState *gamestate);
+void determineTurnOrder(GameState *gamestate, int order[NUM_PLAYERS]);
+void playTurn(GameState *gamestate, int playerIndex);
+void runAuction(GameState *gamestate, int squareIndex);
+void endOfRoundProcessing(GameState *gamestate);
+void printRoundSummary(GameState *gamestate);
+int isGameOver(GameState *gamestate);
+int findWinner(GameState *gamestate);
+void runGame(GameState *gamestate);
 
 #endif

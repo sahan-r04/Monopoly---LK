@@ -934,3 +934,52 @@ void  sendToJail(Player *p){
     p->inJail = 1;
     p->jailTurns = 0;
 }
+
+// Table 6: the rent multiplier for a property's current development level.
+int getRentMultiplier(Square *square) {
+    int multiplier = 1;
+
+    if (square -> hasHotel == 1) {
+        multiplier = 10;
+    } else if (square -> numHouses == 4) {
+        multiplier = 7;
+    } else if (square -> numHouses == 3) {
+        multiplier = 5;
+    } else if (square -> numHouses == 2) {
+        multiplier = 3;
+    } else if (square -> numHouses == 1) {
+        multiplier = 2;
+    } else {
+        multiplier = 1;
+    }
+
+    return multiplier;
+}
+
+// Called right after a house/hotel is added, with the multiplier from just
+// before and just after. Scales currentRent by that ratio instead of
+// recalculating from baseRent, so any active card/regulation rent effects
+// already baked into currentRent aren't wiped out by the new construction.
+void recalculateRentAfterConstruction(Square *square, int oldMultiplier, int newMultiplier) {
+    square -> currentRent = (square -> currentRent * newMultiplier) / oldMultiplier;
+}
+
+// Political Rally (National Event Card): counts down a closed square's
+// remaining rounds and reopens it once the countdown reaches 0.
+void reopenClosedSquares(GameState *gamestate) {
+
+    int i = 0;
+    while (i < BOARD_SIZE) {
+        Square *square = &gamestate -> board[i];
+
+        if (square -> closedRoundsLeft > 0) {
+            square -> closedRoundsLeft = square -> closedRoundsLeft - 1;
+
+            if (square -> closedRoundsLeft == 0) {
+                square -> isDamaged = 0;
+            }
+        }
+
+        i = i + 1;
+    }
+}

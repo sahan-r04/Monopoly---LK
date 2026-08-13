@@ -1,0 +1,812 @@
+assumptions.txt
+================
+Every place in the current .c files where a real modeling decision was made
+because the assignment brief is silent, ambiguous, or gives no formula/number.
+Each entry explains (1) exactly what's missing or unclear in the document,
+(2) what the alternatives were, and (3) the reasoning behind the choice that
+was actually implemented. Organized by file, each marked ASSUMPTION at the
+same spot in the source.
+
+This is different from yetToMake.txt: that file lists things not built yet at
+all. This file lists things that ARE built, but where a judgment call filled
+a gap the brief leaves open.
+
+
+board.c
+=========
+
+1. Railway station purchase price (LKR 2,500) and mortgage value (LKR 1,250)
+------------------------------------------------------------------------------
+Gap: Appendix B's Property Values table only prices the 8 colour groups
+(Brown through Dark Blue). Table 2 gives railway RENT by station count
+(250/500/1000/2000), but never a price to buy or mortgage a station. Since
+Rule 5 requires every unowned purchasable square to have a listed price, the
+game can't function without picking a number here - skipping it isn't an
+option.
+
+Reasoning: Two things anchored the choice instead of picking arbitrarily.
+First, every one of the 8 priced colour groups in Table B has mortgage value
+set at exactly 50% of purchase price (Brown: 1500/750, Dark Blue: 10000/5000,
+and every group in between) - so even though the table never prices a
+railway, it DOES establish a firm 50%-mortgage ratio that clearly applies
+board-wide. Applying that same ratio to whatever railway price was chosen
+kept the number internally consistent with the rest of the board rather than
+inventing an unrelated ratio. Second, for the purchase price itself, LKR
+2,500 was chosen to match the Light Blue group - the second-cheapest tier -
+reasoning that all 4 railway stations are spread evenly across the board
+(similar to how they're evenly spread in traditional Monopoly) and sit at a
+moderate, low-middle price point rather than a premium one, matching their
+modest, flat rent output (Table 2 tops out at 2000 for owning all four,
+well below what a Dark Blue monopoly earns).
+
+2. Utility company purchase price (LKR 1,500) and mortgage value (LKR 750)
+------------------------------------------------------------------------------
+Gap: Section 1.1.3 only gives the RENT formula for utilities (4x dice value
+for one owned, 10x for both) - no purchase price or mortgage value anywhere.
+
+Reasoning: Same 50%-mortgage-ratio logic as railways (#1) was applied here
+too (750 is exactly 50% of 1500). For the purchase price itself, LKR 1,500
+was chosen to match the cheapest colour group (Brown), reasoning that
+utilities are the lowest-ceiling income source on the board - their rent is
+capped by a dice roll (2-12) rather than a fixed, group-scalable rent table,
+so pricing them at the bottom tier keeps their purchase risk proportional to
+their genuinely modest, dice-dependent payout.
+
+
+finance.c
+===========
+
+3. payRent() caps rent at whatever cash the payer has, rather than tracking a
+   shortfall or debt
+------------------------------------------------------------------------------
+Gap: Rule 7 only says landing on an owned property "requires payment of rent
+to the owner" - it never states what happens if the payer can't fully afford
+it.
+
+Reasoning: Three options existed: (a) let cash go negative, (b) cap the
+payment at whatever cash is available and stop there, or (c) trigger
+bankruptcy immediately inside payRent() itself. (a) was rejected because a
+negative cash balance would make every other calculation that reads
+player->cash (net worth, auction eligibility, loan capacity) behave
+nonsensically. (c) was rejected because Rule 14 defines bankruptcy as
+"liabilities exceed available assets" - a comparison against the player's
+WHOLE financial position (properties, insurance, everything), not just
+whether one rent payment happened to bounce. payRent() only has visibility
+into cash, not the player's full asset picture, so it isn't the right place
+to make that determination. Option (b) was chosen as the least-damaging
+default: it keeps cash at a sane, non-negative value and leaves the actual
+bankruptcy decision to checkBankruptcy() (see #6), which runs once per round
+with visibility into the player's whole financial position.
+
+4. calculateNetWorth() subtracts a mortgaged property's mortgageValue as a
+   liability
+------------------------------------------------------------------------------
+Gap: Rule 15's precise net worth formula (page 8: "Cash + Property Value +
+Building Value + Railway Value + Utility Value + Insurance Claims Receivable
+- Outstanding Loans - Accrued Interest - Taxes Due") does not list "mortgage
+liabilities" as one of its named terms. That phrase only appears in the
+looser description on page 2 ("Net worth is calculated by considering...
+outstanding loans, and mortgage liabilities").
+
+Reasoning: A mortgaged property already collects no rent (Rule 7) and the
+player already received mortgageValue in cash from the bank when it was
+mortgaged (once that action exists - see yetToMake.txt). If currentValue
+still counts the property's full value in the net worth sum with no offset,
+a player could inflate their apparent net worth simply by mortgaging
+everything and pocketing the cash, double-counting the same value as both
+"cash received" and "full property value." Subtracting mortgageValue treats
+a mortgage the same way an outstanding bank loan is already treated
+elsewhere in the same function (full value counted, but the amount already
+drawn against it subtracted back out) - net worth should reflect equity
+(what's actually owned free and clear), which page 2's mention of "mortgage
+liabilities" strongly implies was the original intent even though Rule 15's
+literal formula omits the term.
+
+5. calculateNetWorth() treats currentValue as one combined number covering
+   "Property Value," "Building Value," "Railway Value," and "Utility Value"
+------------------------------------------------------------------------------
+Gap: Rule 15 lists these as four separate formula terms, but the Square
+struct in types.h only has a single currentValue field - there's no separate
+field anywhere for "the value of the buildings on this property" versus "the
+value of the land/square itself."
+
+Reasoning: Rather than inventing three new, mostly-unused fields (a
+buildingValue, a railwayValue, a utilityValue that nothing else in the
+codebase would read or write) purely to mirror Rule 15's wording, the
+simplest and most consistent choice was to let currentValue serve as one
+unified "this square's market value" number regardless of square type, and
+sum it the same way for every owned square. This is an honest simplification
+rather than a deliberate design stance: "Building Value" specifically has no
+real backing anywhere yet, because no function currently increases
+currentValue when a house or hotel is actually constructed (that construction
+-> value link is a genuine gap, tracked in yetToMake.txt, not a choice made
+on purpose).
+
+6. checkBankruptcy() declares a player bankrupt once calculateNetWorth() drops
+   to 0 or below, and transfers every owned square straight back to the Bank
+------------------------------------------------------------------------------
+Gap: Rule 14 says a player may become bankrupt "whenever liabilities exceed
+available assets," and that on bankruptcy "remaining assets transfer according
+to the bankruptcy rules defined later in this specification" - but no such
+later section actually exists anywhere in the document. Both the exact
+bankruptcy trigger and the exact transfer mechanics are left undefined.
+
+Reasoning: "Liabilities exceed available assets" is precisely what
+calculateNetWorth() already computes (cash + property values - mortgages -
+loans), so a net worth of 0 or below was used directly as the trigger, rather
+than inventing a separate liabilities-vs-assets comparison that would just
+recompute the same formula a second way. For "remaining assets transfer," with
+no later rules section to point to, every square the bankrupt player owns is
+simply returned to the Bank (ownerId = -1) - the same mechanic Rule-LK 6
+already uses for foreclosed loan collateral - rather than attempting any kind
+of distribution among the remaining players, which nothing in the brief
+describes.
+
+
+events.c
+==========
+
+7. Heavy Floods (National Event Card) - "coastal" reuses the Regional Cards'
+   Yellow + Light Blue groups
+------------------------------------------------------------------------------
+Gap: Appendix A's Heavy Floods entry just says "Random coastal property
+damaged" with no square list, and "coastal" isn't a category the data model
+defines anywhere.
+
+Reasoning: Both this National card and two separate Regional Development
+Cards (Beach Pollution's "Southern coastal," Flood Damage's "low-lying
+coastal") use the same undefined word "coastal." Rather than inventing a
+third, different definition just for this card, it reuses the exact same
+6-square pool already established for the other two (see #9 and #10 below),
+reasoning that a player encountering three different "coastal" effects
+across the game should experience ONE consistent idea of which properties
+count as coastal, not three conflicting ones depending on which card deck
+happened to draw them.
+
+8. Foreign Funding (National Event Card) - "commercial property values"
+   applied to every property square board-wide
+------------------------------------------------------------------------------
+Gap: Appendix A's Foreign Funding entry says "Commercial property values
+increase by 15%," but Table 1's square categories are Property / Railway /
+Utility / Insurance / Bank / Tax / Event / Special - "commercial" isn't one
+of them.
+
+Reasoning: Considered restricting this to Bank/Insurance/Utility squares as
+a literal reading of "commercial," but rejected it because those square
+types carry no purchasePrice/currentValue in board.c at all (they're not
+tradeable assets - GO, Tax, Event, Bank, and Insurance squares are never
+bought or sold), so a "+15% value" effect would have nothing to act on and
+would silently do nothing. Since only SQUARE_PROPERTY squares actually have
+a currentValue that can meaningfully appreciate, and "commercial property"
+most plausibly means real estate in general rather than a board category
+that doesn't exist, the effect was applied to every property square instead.
+
+9. Beach Pollution (Regional Development Card) - "Southern coastal rents"
+   targets Galle Fort, Unawatuna, Hikkaduwa (Yellow group)
+------------------------------------------------------------------------------
+Gap: Table 4 gives no square list for this card, just "Southern coastal
+rents -30%."
+
+Reasoning: The same three squares are named explicitly, by name, in another
+card in the very same table - Southern Tourism Boom's effect reads "Galle
+Fort, Unawatuna and Hikkaduwa rental income +40%." Since both cards use
+almost identical wording ("Southern Tourism Boom" vs. "Southern coastal"),
+the most natural reading is that they describe the same physical region of
+Sri Lanka experiencing two different economic swings at different points in
+the game (a tourism boom at one draw, pollution at another) - not two
+unrelated, unnamed sets of properties that happen to share an adjective.
+
+10. Flood Damage (Regional Development Card) - "Low-lying coastal properties"
+    targets Bambalapitiya, Wellawatte, Mount Lavinia (Light Blue group)
+------------------------------------------------------------------------------
+Gap: Table 4 gives no square list for this card either, just "Low-lying
+coastal properties lose 20% value."
+
+Reasoning: This card deliberately uses different wording from Beach
+Pollution ("low-lying coastal" vs. "Southern coastal") in the same table,
+which suggests the two cards are meant to describe two different regions,
+not the same one twice under a different name. Looking for the next most
+plausible distinct coastal cluster on the board, Bambalapitiya/Wellawatte/
+Mount Lavinia (Light Blue, squares 6/8/9) sit in the Colombo-suburb naming
+region of the board, immediately after GO/Pettah/Maradana - these are real,
+famously low-lying, flood-prone coastal suburbs of Colombo, making this
+group the best geographic fit for "low-lying coastal" that's still distinct
+from the Yellow group already claimed by Beach Pollution/Southern Tourism
+Boom.
+
+11. Water Shortage's "surrounding properties -10%" targets Unawatuna and
+    Hikkaduwa
+------------------------------------------------------------------------------
+Gap: Table 4's Water Shortage entry says "Water utility revenue +20%;
+surrounding properties -10%" without naming which properties "surround" the
+utility.
+
+Reasoning: Unlike the other coastal assumptions above, "surrounding" is a
+spatial word, not a thematic one, so this was read literally off the board
+layout (Table 1) instead of by theme: square 28 is the National Water Supply
+and Drainage Board, and squares 27 (Unawatuna) and 29 (Hikkaduwa) sit
+immediately on either side of it in the square sequence - literally
+surrounding it on the board path. This is a positional reading rather than a
+"coastal region" reading, deliberately different reasoning from #7, #9, and
+#10 because the word itself is different.
+
+12. Luxury Property Tax (Government Regulation) charges every round it's
+    active, via finance.c's round-tick function, rather than once
+------------------------------------------------------------------------------
+Gap: Rule-LK 24's Luxury Property Tax entry calls it "an annual maintenance
+tax," which reads as recurring, but doesn't state exactly how many times it
+should be charged or when it should stop.
+
+Reasoning: This was originally a one-off charge (see the project history),
+applied once immediately because no round-tick handler existed yet to keep
+re-applying it. Once finance.c gained applyRoundTickEffects() (called once
+per round from endOfRoundProcessing()), "annual" was read as "every round
+for as long as the regulation stays active," charging 25% of value again
+each round via applyRecurringLuxuryTax() - reusing
+GOVERNMENT_REGULATION_DURATION_ROUNDS (20 rounds) as the natural stopping
+point, the same duration every other Government Regulation already uses,
+rather than inventing a second, different duration figure specifically for
+this one regulation.
+
+13. Disaster repair cost = 10% of the property's current value
+------------------------------------------------------------------------------
+Gap: The brief describes disasters (Rule-LK 10) and their insurance payouts
+in detail, but never states how the underlying repair cost itself is
+calculated - no formula, percentage, or flat amount appears anywhere.
+
+Reasoning: Searched the whole document for any other "cost to restore a
+property" figure and found exactly one: Rule-LK 17's renovation cost, "10%
+of the property's current market value," used to restore depreciation and
+reset property age. Since both renovation and disaster repair are
+conceptually the same action (returning a property to good condition after
+some form of deterioration or damage), reusing that same 10% figure kept the
+codebase internally consistent - one "restore this property" cost formula
+serving two different triggers - rather than inventing a second, entirely
+arbitrary percentage with no textual basis anywhere in the brief.
+
+14. Business Interruption Insurance is treated as covering any disaster type
+    (for hotels only)
+------------------------------------------------------------------------------
+Gap: Section 1.2 gives Basic Insurance an explicit "Protect Against: Fire,
+Flood" list and Comprehensive Insurance an explicit "Protect Against: Fire,
+Flood, Riot, Vandalism" list. Business Interruption Insurance's entry skips
+straight to "Compensation - Applicable only to properties containing
+hotels: Repair cost, Lost rental income for five rounds," with no perils
+list at all.
+
+Reasoning: Read that missing list as meaningful rather than an oversight -
+this policy is described purely in terms of protecting a hotel's ongoing
+BUSINESS (lost rental income), not against any specific named peril the way
+Basic and Comprehensive are. A hotel's business gets interrupted the same
+way whether the cause was fire, flood, a riot, or an electrical failure - the
+policy's entire premise is peril-agnostic income protection, not
+peril-specific property damage protection. That's the most literal
+explanation for why this is the one policy in the whole table with no
+"Protect Against" list: it was never meant to have one.
+
+15. Building Collapse and Electrical Failure are covered by neither Basic nor
+    Comprehensive insurance
+------------------------------------------------------------------------------
+Gap: Rule-LK 10 lists five possible disasters (Fire, Flood, Riot, Building
+Collapse, Electrical Failure), but Section 1.2/Table 10's coverage lists for
+Basic ("Fire, Flood") and Comprehensive ("Fire, Flood, Riot, Vandalism")
+never mention Building Collapse or Electrical Failure by name at all.
+
+Reasoning: The alternative was to assume this was an oversight by the
+assignment's authors and quietly fold these two disaster types into
+Comprehensive coverage "to be safe." That was rejected in favor of
+implementing the two peril lists exactly as literally written - the safer,
+more defensible choice for a graded assignment is to match the document's
+actual text rather than silently patch what might (or might not) be an
+intentional gap. The practical result is that these two disaster types are
+never covered by insurance under either policy, meaning the property owner
+always personally bears their repair cost - which may be a deliberate
+"insurance doesn't cover everything" design point by the assignment authors,
+or may be an oversight, but either way the code now matches what the
+document actually says rather than a guess about what it might have meant.
+
+16. A Government Regulation stays active for 20 rounds (its own draw
+    interval)
+------------------------------------------------------------------------------
+Gap: Rule-LK 24 states the trigger cadence ("Every twenty rounds one
+regulation is selected randomly") but never says how long the chosen
+regulation actually remains in force.
+
+Reasoning: Two options existed: treat it as permanent until the next
+regulation overwrites it, or give it a duration matching its own draw
+interval. The second option was chosen for consistency with the two other
+periodic systems already built the same way: Regional Development Cards
+explicitly state "One Regional Development Card remains active for 15
+rounds" (matching their own 15-round draw interval), and National Event
+Cards' durations are likewise tied to their own draw/redraw cycle. Making
+Government Regulations the one system out of three with fundamentally
+different (permanent, non-expiring) semantics would need special-casing
+later when a round-tick handler is eventually built to expire these effects
+- keeping all three periodic systems structurally identical avoids that
+extra complexity for a distinction the brief never actually asks for.
+
+17. Disaster type and regulation selection are both uniform-random among
+    their options
+------------------------------------------------------------------------------
+Gap: Rule-LK 10 ("Random disasters may occur") and Rule-LK 24 ("one
+regulation is selected randomly") both use the word "randomly" without ever
+providing a weighting or probability table for their options - contrast this
+with dice rolls, which the brief explicitly ties to real 2d6 physical dice
+with their own natural (non-uniform) distribution.
+
+Reasoning: With no stated weighting anywhere, uniform probability is the
+minimal, zero-extra-assumption default - every outcome gets rand() % N with
+no further invented parameters. Choosing any NON-uniform weighting (for
+example, "Fire is more likely than Electrical Failure") would itself be a
+far bigger unstated assumption, since it would require inventing specific
+numbers the document never hints at in any way. Uniform selection needed no
+additional invented number at all, making it the smallest possible
+assumption that still satisfies "randomly."
+
+
+players.c
+===========
+
+18. Conservative Banker's "bankruptcy imminent" = cash below 5% of
+    STARTING_CASH (LKR 1,500)
+------------------------------------------------------------------------------
+Gap: Rule 14 defines actual bankruptcy as "liabilities exceed available
+assets" - a comparison, not a cash figure. Section 3.2 says Conservative
+Banker avoids loans "unless bankruptcy is imminent," meaning BEFORE that
+point is reached, but gives no number for how close is "imminent."
+
+Reasoning: A concrete number was unavoidable, since decideLoanAmount() must
+return a definite value, not "it depends." STARTING_CASH (LKR 30,000) is the
+one canonical baseline figure the whole document anchors around (Rule 1), so
+expressing the danger line as a percentage of that number ties it to
+something the assignment itself defines, rather than inventing an
+arbitrary flat figure from nothing. 5% specifically (not, say, 20% or 50%)
+was chosen because Conservative Banker's whole personality is described as
+risk-averse and cautious - the threshold needed to sit close to true
+desperation, not at some comfortable midpoint, otherwise "avoids loans
+unless imminent" would trigger far too easily for a strategy defined by
+avoiding exactly that. The same threshold is reused in decideMortgage() (see
+#23) as a general "cash is critical" signal, for the same underlying reason:
+it's the one danger-line number already established and reasoned about
+elsewhere in the file.
+
+19. Opportunistic Trader's "projected return exceeds borrowing cost" is
+    approximated using current total rent income and Rule-LK 4's interest
+    formula
+------------------------------------------------------------------------------
+Gap: Section 3.4 says loans are taken "only when projected return exceeds
+borrowing cost," but neither term is defined numerically anywhere, and there
+is no mechanism in the codebase that projects FUTURE income from a
+hypothetical loan-funded purchase (that would require simulating "what would
+my rent be if I built houses here," which needs the rent-by-development-level
+function that doesn't exist yet - see yetToMake.txt's board.c gap).
+
+Reasoning: Absent a true forward-looking projection, the closest available
+real number was used as a proxy: the player's EXISTING total rental income
+across everything they already own, reasoning that this represents the
+player's demonstrated ability to generate income from capital - a rough but
+grounded substitute for a true future projection. For "borrowing cost,"
+Rule-LK 4's own compounding formula (Current Loan x Current Interest Rate) was
+reused directly rather than invented, since finance.c's applyLoanInterest()
+already computes exactly this number every round for existing loans - using
+the identical formula keeps this decision's estimate consistent with how
+interest is actually charged elsewhere in the same codebase, rather than
+introducing a second, different interest calculation just for this check.
+
+20. Aggressive Investor's "additional funds can increase projected rental
+    income" is read as "owns a monopoly with room left to build"
+------------------------------------------------------------------------------
+Gap: Section 3.1 ties loan-taking to whether borrowed funds "can increase
+projected rental income," but gives no formula for projecting income, and
+none exists in the codebase.
+
+Reasoning: Searched the ruleset for the ONE mechanism that actually connects
+spending money to higher rental income, and found exactly one: constructing
+houses/hotels on a completed monopoly, per Table 6's rent multipliers (which
+scale from 1x base rent with no buildings up to 10x with a hotel). No other
+rule anywhere ties spending to increased rent. So "additional funds CAN
+increase rental income" was read as logically equivalent to "this player has
+an unfinished development opportunity on a monopoly they already own" -
+directly reusing the already-built monopolyPlay() helper (Rule 8) plus a
+numHouses/hasHotel space check, rather than inventing an unrelated numeric
+income-forecast formula that has no rule anywhere to derive it from.
+
+21. Risk Taker's "purchases insurance only after experiencing a financial
+    loss" is approximated as "only once this property is currently damaged"
+------------------------------------------------------------------------------
+Gap: Section 3.3 says Risk Taker buys insurance reactively, "only after
+experiencing a financial loss" - implying memory of a past event, even after
+that property has since been repaired.
+
+Reasoning: Implementing this literally would require tracking, per property,
+whether it has EVER been damaged in the past, persisting even after repair -
+a new piece of history state the current isDamaged flag doesn't provide
+(isDamaged only reflects the current instant, and is reset to 0 once
+repaired). Adding a brand-new "hasEverBeenDamaged" field purely to serve one
+strategy's flavour text would mean expanding the types.h data model just for
+this, a bigger change than a single decision function warrants. Instead, the
+existing isDamaged flag was reused directly: the property must be currently
+damaged before Risk Taker will insure it. This slightly under-serves the
+literal wording (a property that was damaged and has since been repaired no
+longer looks "loss-experienced" under this check), but it captures Risk
+Taker's essential trait - reactive, not proactive, insurance buying - without
+inventing new persistent state the rest of the codebase has no other use
+for.
+
+22. Opportunistic Trader's "Comprehensive Insurance only for high-value
+    developments" treats a hotel as "high-value"
+------------------------------------------------------------------------------
+Gap: Section 3.4 uses the relative term "high-value developments" with no
+numeric threshold given anywhere (unlike, say, an explicit "properties above
+LKR X").
+
+Reasoning: The one clear, unambiguous, already-existing distinction in the
+data model between "more developed" and "less developed" properties is
+hasHotel versus any lower house count - a hotel is Table 6's top development
+tier, earning 10x base rent versus lower multipliers for fewer houses. Since
+a hotel IS objectively the single most valuable development stage a property
+can reach, it was used as the natural stand-in for "high-value" rather than
+inventing an arbitrary LKR cutoff the brief never states, which would have
+required picking a number with no anchor anywhere in the document.
+
+23. decideMortgage()'s entire trigger condition and target-selection logic is
+    an invented design
+------------------------------------------------------------------------------
+Gap: Section 3 lists explicit behavior for every one of the four strategies
+across purchasing, auctions, loans, and insurance - but never once mentions
+mortgaging a property, for any strategy. There was no rule text of any kind
+to translate into code.
+
+Reasoning: Two design questions had to be answered from scratch. First, WHEN
+should a player mortgage something? A strategy-neutral, purely defensive
+"raise emergency cash as a last resort" trigger was chosen for all four
+strategies alike, reusing the same cash-critical threshold already
+established and reasoned about for Conservative Banker's bankruptcy-imminent
+check (#18) - reasoning that inventing four DIFFERENT strategy-specific
+mortgage personalities, each with zero textual basis, would be four times
+the fabrication for no better grounding than one shared, defensible rule.
+Second, WHICH property should be mortgaged? The property with the highest
+mortgageValue was chosen as the target, reasoning that a player raising
+emergency cash wants to solve their cash shortfall using the fewest
+properties possible - mortgaging the single highest-value eligible property
+raises the most cash per property taken out of active use (since Rule 7
+means a mortgaged property earns no rent), minimizing the ongoing cost of
+fixing one cash crisis.
+
+24. Conservative Banker's loan repayment "if sufficient funds exist" is read
+    as "any cash greater than zero"
+------------------------------------------------------------------------------
+Gap: Section 3.2 says Conservative Banker "repays loans immediately whenever
+visiting the Bank if sufficient funds exist" - "sufficient" isn't defined as
+either "any amount" or "enough to fully clear the loan."
+
+Reasoning: Requiring cash >= loanAmount (only ever repay when able to clear
+the WHOLE loan in one go) was considered and rejected, because Rule-LK 5
+explicitly lists "Repay part of the loan" as its own separate, sanctioned
+action distinct from "Repay the entire loan" - meaning partial repayment is
+clearly intended as normal, legitimate behavior, not something to avoid.
+Since finance.c's repayLoan() already caps whatever amount is requested at
+the player's actual available cash, the simplest and least redundant
+implementation was to always request the FULL outstanding loanAmount
+whenever the player has any cash at all, letting the existing capping logic
+inside repayLoan() naturally turn that into a partial payment when the full
+amount isn't affordable - rather than re-implementing that same
+min(cash, loanAmount) capping a second time inside players.c.
+
+25. decideAuctionBid()'s Conservative and Opportunistic strategies currently
+    accept a bid equal to market value (<=), not strictly below it (<)
+------------------------------------------------------------------------------
+Gap/context: Section 3.2 and 3.4 both describe bidding strictly "below"
+market value / at a "discount," which literally implies a bid exactly equal
+to market value should be rejected, not accepted.
+
+Reasoning: This one differs from every other entry above because it isn't a
+gap-filling interpretation - the code originally implemented the literal
+strict "less than" comparison (using a small arithmetic trick to express
+"< market value" as "<= market value - 1"), matching the rule's wording
+exactly. It was then deliberately simplified to a plain "<= market value"
+check at the user's explicit request, trading a small amount of literal
+accuracy to the word "below" for simpler, more directly readable code. It's
+recorded here because it does create a real, small behavioral gap from the
+rule text (a bid exactly at market value is now accepted by these two
+strategies, when "below" suggests it shouldn't be) - flagged so this is a
+visible, deliberate tradeoff rather than a silent one.
+
+
+Added while completing yetToMake.txt's remaining gaps
+========================================================
+Everything below was added in the pass that filled in yetToMake.txt's
+remaining finance.c/board.c/events.c/game.c gaps: round-tick systems,
+railway/utility rent, Income Tax, Rule-LK 35 effect reversion, the Economic
+Events deck, and Rule-LK 36's market display. Kept as a separate trailing
+section (rather than renumbering every entry above) so none of the internal
+"(see #18)"-style cross-references above had to change.
+
+finance.c
+===========
+
+26. currentIncomeTaxAmount seeds from a new INCOME_TAX_AMOUNT constant (LKR
+    200)
+------------------------------------------------------------------------------
+Gap: Rule 11 requires collecting Income Tax when a player lands on the
+Income Tax square, but never states an actual amount anywhere - Table 1
+lists the square by name only, with no LKR figure attached.
+
+Reasoning: A number was unavoidable since collectTax() must charge
+something concrete. STARTING_CASH (LKR 30,000) was used as an anchor the
+same way entry #18 anchors Conservative Banker's danger threshold to it:
+Income Tax was set at roughly 0.67% of starting cash (LKR 200), deliberately
+kept small relative to rent/purchase figures elsewhere on the board (which
+run into the thousands), since Income Tax reads as a minor, incidental cost
+of passing that one square rather than a game-swinging penalty. The amount
+is stored as a mutable economy.currentIncomeTaxAmount (not just the
+constant) specifically so the "Increase Property Tax" Government Regulation
+(Rule-LK 24) has something to actually increase by 50%, and so that increase
+can later be reverted when the regulation expires (see #33 below).
+
+27. depreciateProperties() cuts 1% off currentValue's OWN current value each
+    time a new 5-round threshold is crossed, rather than recomputing from
+    purchasePrice every round
+------------------------------------------------------------------------------
+Gap: Rule-LK 15/16 say a property depreciates 1% every 5 rounds past its
+50th round of age, capped at 30% total - but "1% of what" isn't specified as
+either "1% of the original purchase price" or "1% of whatever the property
+is worth right now."
+
+Reasoning: Recomputing currentValue = purchasePrice x (100 - totalPercent) /
+100 every round was considered first, since it reads most literally as "1%
+of original value per step." It was rejected because currentValue is also
+the one field every card, Regional Development effect, Government
+Regulation, and Market Boom/Decline permanently multiplies in place
+(Rule-LK 34's stacking depends on this) - recomputing purely from
+purchasePrice every round would silently erase every other active
+percentage effect on that square the moment a depreciation threshold is
+crossed. Applying the 1% cut to the property's CURRENT value instead (only
+once, exactly when a new 5-round boundary is crossed, tracked by comparing
+the threshold before and after aging one round) preserves every other
+stacked effect and treats depreciation the same structural way every other
+percentage effect in the codebase already works.
+
+28. Railway and utility rent are recalculated fresh at the moment of
+    payment, overwriting currentRent rather than composing with it
+------------------------------------------------------------------------------
+Gap: Table 2 (railway rent by station count) and Section 1.1.3 (utility rent
+= dice value x 4 or x 10) both define rent as something computed live at the
+moment of collection - neither is a fixed number the way property rent is.
+But several other systems (Fuel Shortage, Transport Strike, Port Expansion,
+Railway Modernization, Electricity Tariff Increase/Revision, Water Shortage)
+already multiply currentRent in place as if it WERE a fixed, cumulative
+number.
+
+Reasoning: Two designs were possible: (a) keep currentRent as the single
+source of truth and have calculateRailwayRent()/calculateUtilityRent()
+multiply INTO it the same way every other effect does, or (b) compute the
+correct base figure fresh every time rent is actually collected and simply
+overwrite currentRent with it. Option (a) was rejected because railway/
+utility rent isn't a stable base value that effects can meaningfully
+compound onto - it changes on its own (a 4th railway purchased mid-game
+doubles rent) independent of any card ever being drawn. Option (b) - what's
+implemented - guarantees rent is always structurally correct per Table 2/
+Section 1.1.3 at the moment it matters, at the deliberate cost that any
+earlier card/regulation percentage boost specifically targeting railway/
+utility rent gets overwritten rather than compounded the next time that
+square is landed on. This is a bounded, documented simplification: a fully
+correct version would need currentRent split into a stored base and a
+separate running multiplier restored every payment, judged a bigger
+structural change than this assignment's scope warrants.
+
+29. Starting loan interest rate is 10%
+------------------------------------------------------------------------------
+Gap: Rule-LK 2 through 7 describe how loan interest compounds and when it's
+charged, but never state what rate a loan actually starts at when the
+simulation begins - baseInterestRate had no initial value anywhere, meaning
+every loan would be silently interest-free until the first card that
+happens to touch the rate is drawn.
+
+Reasoning: 10% was chosen as a plain, round middle-of-the-road figure - low
+enough not to make every loan instantly crushing under Rule-LK 4's
+compounding, high enough that Interest Rate Cut/Increase cards and the
+Reduce Loan Interest regulation have a meaningful, visible effect on top of
+it rather than moving a rate that was effectively zero to begin with. Set
+once in runGame() (game.c) alongside currentIncomeTaxAmount, right after the
+board and players are initialized.
+
+
+events.c
+==========
+
+30. Political Rally reuses the isDamaged flag to represent "closed," on top
+    of its existing use for disaster damage
+------------------------------------------------------------------------------
+Gap: Appendix A's Political Rally card says one random property is "closed
+for 2 rounds," a different concept from a disaster-damaged property
+(Rule-LK 11), but types.h's Square struct only had one boolean (isDamaged)
+marking a property as unable to collect rent.
+
+Reasoning: A separate isClosed flag was considered, but rejected because
+"closed" and "damaged" have IDENTICAL observable behavior everywhere else in
+the codebase - both mean "this property cannot currently collect rent" (see
+finance.c's payRent(), which already blocks rent whenever isDamaged == 1).
+Introducing a second flag with the exact same downstream effect would only
+duplicate every isDamaged check for no behavioral difference. Instead,
+Political Rally sets isDamaged = 1 exactly like a disaster does, but ALSO
+sets the new closedRoundsLeft field to 2 - board.c's reopenClosedSquares()
+counts that down every round and clears isDamaged automatically once it
+reaches 0, independent of whether the property could ever afford "repairs"
+(which wouldn't make sense here, since nothing is actually broken).
+
+31. Insurance Discount (National Event Card) grants a permanent, economy-wide
+    -20% premium discount rather than a temporary, player-scoped one
+------------------------------------------------------------------------------
+Gap: Appendix A's Insurance Discount card says "Premiums reduced by 20%"
+with no stated duration or scope (all players vs. just the drawer).
+
+Reasoning: This card's effect had to be stored somewhere finance.c's
+getInsurance() could read at premium-calculation time. The natural field,
+economy.insurancePremiumDiscountPercent, already exists on Economy (not
+Player) because it's shared with the Insurance Regulation (a genuinely
+economy-wide effect by nature, Rule-LK 24). Rather than adding a second,
+player-scoped discount field purely to keep this one card faithful to "just
+the drawer, temporarily," the existing shared field was reused - meaning
+this card's discount, once drawn, applies to every player's insurance
+purchases from that point on, and (since National Event Card effects are
+excluded from Rule-LK 35 reversion, see #32) never expires on its own for
+the rest of the simulation. A deliberate scope-driven simplification, not an
+oversight.
+
+32. Rule-LK 35 effect reversion is implemented only for economy-level
+    effects (Regional Development Cards, Government Regulations, Market
+    Boom/Decline) - National Event Card effects are left permanent
+------------------------------------------------------------------------------
+Gap: Rule-LK 35 says active effects should revert once their duration
+expires, without distinguishing the three economy-wide systems (Regional/
+Regulation/Market) from the fourth, player-scoped system (National Event
+Cards, Appendix A).
+
+Reasoning: The three economy-wide systems each write into a small,
+well-defined set of fields (currentValue/currentRent by property GROUP or
+square TYPE, or named Economy fields like currentIncomeTaxAmount) that can
+be identified again later purely from the stored cardId, making a clean,
+mechanical "divide the percentage back out" reversal possible. National
+Event Cards are fundamentally different: they're stored per-PLAYER, several
+of them stack an effect onto whichever squares that specific player owned
+AT DRAW TIME (not a fixed group or type), and if that player's ownership
+changes before the card expires there's no longer a well-defined "which
+squares does this reversal apply to" answer. Correct reversal would need
+tracking the exact set of squares each card touched at draw time (a new
+per-player list, not just a single targetGroup), a meaningfully bigger
+data-model change than extending the three economy-wide systems. Given the
+assignment's scope, the three economy-wide systems were completed fully and
+correctly, while National Event Card effects were left as a documented,
+bounded gap: they still apply correctly when drawn, they just don't
+automatically expire.
+
+33. Government Regulations "Reduce Loan Interest" (index 1) and "Luxury
+    Property Tax" (index 3) are excluded from Rule-LK 35 reversion
+------------------------------------------------------------------------------
+Gap: Rule-LK 35 doesn't say whether every active effect must revert, or only
+ones where "reverting" is a meaningful, well-defined operation.
+
+Reasoning: Reduce Loan Interest permanently drifts baseInterestRate down by
+2% when drawn - the same permanent-drift treatment already given to
+Inflation's effect on the same field (Rule-LK 13/14) and to Interest Rate
+Cut/Increase National Event Cards, none of which are ever reverted either.
+Reverting this one regulation's 2% after 20 rounds while every other
+rate-changing effect drifts permanently would be an inconsistent special
+case with no textual basis. Luxury Property Tax has no reversion target at
+all - once it stops being charged, there is no lingering percentage or field
+value on any square to divide back out, since the round-tick charge itself
+reads live from whether the regulation is still active and simply stops
+firing the moment it isn't. Both are correctly-behaving no-ops, not gaps.
+
+34. The Rule-LK 33 group cooldown (30 rounds) starts counting from when a
+    Market Boom/Decline effect ENDS, not from when it starts
+------------------------------------------------------------------------------
+Gap: Rule-LK 33 says a property group "cannot be reselected for Market Boom
+or Decline for 30 rounds," without stating whether that window begins at
+selection or once the (10-round) effect actually finishes.
+
+Reasoning: Starting the cooldown at selection time was rejected because it
+would mean a group becomes reselectable again after only 20 additional
+rounds past the end of its own effect (30 total minus the 10 rounds it was
+active) - a number with no clean relationship to either stated duration.
+Starting the cooldown when revertMarketBoomEffect()/
+revertMarketDeclineEffect() actually runs (a full, clean 30 rounds of the
+group being completely untouched) was chosen instead, since "cannot be
+reselected" most naturally describes the period AFTER the group's own effect
+has fully played out, not a window overlapping with the effect still active.
+
+35. The Economic Events deck (Rule-LK 18) invents every one of its 8 effects
+    from the card names alone
+------------------------------------------------------------------------------
+Gap: Only the 8 Economic Event names (Tourism Boom, Fuel Crisis, Heavy
+Monsoon, Economic Recession, Stock Market Boom, Government Housing
+Programme, Foreign Investment, Political Unrest) and their 15-round trigger
+cadence were available when this deck was implemented - unlike every other
+card system in the codebase, no effect wording, percentage, or amount was
+available for any of these 8 cards.
+
+Reasoning: Rather than leaving this named, explicitly required mechanic
+entirely unbuilt, each event's effect was invented by direct analogy to the
+closest-matching card already built elsewhere from real rule text - Tourism
+Boom mirrors Tourism Hype's hotel-rent boost, Fuel Crisis mirrors Fuel
+Shortage's railway-rent boost, Heavy Monsoon mirrors Heavy Floods'
+random-property-damage pattern, Stock Market Boom/Economic Recession mirror
+Stock Market Rise/Economic Downturn's board-wide value swings, Government
+Housing Programme mirrors the Housing Subsidy regulation's house-cost cut,
+Foreign Investment mirrors Tax Amnesty's flat per-player cash grant, and
+Political Unrest mirrors Labour Strike's construction suspension. This is a
+fundamentally different kind of assumption than every other entry in this
+file (which fill in a missing NUMBER or SQUARE LIST for an effect whose core
+mechanic is already given) - here, the mechanic itself was inferred rather
+than read, since no such text was available for these 8 specifically.
+Additionally, unlike National/Regional/Regulation cards, these effects apply
+immediately and permanently (no ActiveEffect slot, no expiry) - Rule-LK 18
+gives no duration figure the way the other three periodic systems each
+state their own.
+
+36. Rule-LK 36's "Current Market Conditions" display prints automatically
+    once at the end of every round, rather than on-demand
+------------------------------------------------------------------------------
+Gap: Rule-LK 36 says the simulation should "display active market
+conditions" without specifying when or how often - once per round, only on
+request, or only when something changes.
+
+Reasoning: There's no interactive input mechanism anywhere else in the
+simulation (every player decision is made autonomously by players.c's
+strategy functions), so an "on-demand" display has no trigger that would
+ever fire. Printing it once inside endOfRoundProcessing(), right after
+printRoundSummary(), was chosen instead - consistent with how every other
+piece of round-level state is already surfaced once per round in the same
+place.
+
+
+players.c
+===========
+
+37. Anti-Speculation Act's "3 undeveloped properties" only counts
+    SQUARE_PROPERTY squares with zero houses and no hotel
+------------------------------------------------------------------------------
+Gap: Rule-LK 24's Anti-Speculation Act entry caps a player at "a maximum of
+3 undeveloped properties" without defining "property" precisely - whether
+that includes railways/utilities (which can never be developed with
+houses/hotels at all, per Section 1.1.2) or mortgaged properties.
+
+Reasoning: Railways and utilities were excluded from the count entirely,
+since "undeveloped" implies a property that COULD be developed but currently
+isn't - a railway or utility is never eligible for houses/hotels under any
+circumstances, so counting it as "undeveloped" would be counting something
+against a cap that phrase doesn't meaningfully describe. Mortgaged
+colour-group properties are still counted as undeveloped (a mortgaged
+property still has zero houses and no hotel, and mortgaging doesn't reduce a
+player's exposure to the land-banking this regulation targets), so no
+separate mortgage check was added. The check sits at the very top of
+decideToPurchase() (players.c) so it overrides every strategy's normal
+purchasing logic uniformly while the regulation is active, rather than
+modifying each of the four strategy branches individually.
+
+
+finance.c (continued)
+========================
+
+38. retryDamageRepairs() distinguishes genuine disaster damage from a
+    Political Rally closure using closedRoundsLeft, not a new flag
+------------------------------------------------------------------------------
+Gap: Rule-LK 11 says repairs "are automatically performed" once a damaged
+property's owner can afford the cost, but triggerDisaster() only ever
+attempted repair once, at the moment the disaster fired - if the owner
+couldn't afford it then, the property stayed damaged forever with no retry.
+Building that retry created a new problem: Political Rally (entry #30) also
+sets isDamaged = 1, but that property shouldn't be "repaired" for a fee - it
+should just reopen for free once its 2 rounds are up.
+
+Reasoning: Rather than adding a third flag to distinguish "damaged by
+disaster" from "closed by Political Rally," the existing closedRoundsLeft
+field already draws that line: it's only ever non-zero for a Political
+Rally closure, never for disaster damage. retryDamageRepairs() (finance.c,
+called every round from applyRoundTickEffects()) only attempts a paid repair
+on squares where isDamaged == 1 AND closedRoundsLeft == 0, so a genuinely
+damaged property retries every round until its owner can afford the 10%
+repair cost (entry #13's formula), while a Political Rally closure is left
+alone entirely and reopens for free via board.c's reopenClosedSquares() once
+its countdown reaches 0.
