@@ -414,26 +414,25 @@ void depreciateProperties(GameState *gamestate) {
         }
 
         if (isProperty == 1) {
-            int ageBefore = square -> propertyAge;
             square -> propertyAge = square -> propertyAge + 1;
 
-            int percentBefore = 0;
-            if (ageBefore > DEPRECIATION_AGE_LIMIT) {
-                percentBefore = (ageBefore - DEPRECIATION_AGE_LIMIT) / 5;
-                if (percentBefore > DEPRECIATION_MAX_PERCENTAGE) {
-                    percentBefore = DEPRECIATION_MAX_PERCENTAGE;
-                }
-            }
-
-            int percentAfter = 0;
+            int isOldEnough = 0;
             if (square -> propertyAge > DEPRECIATION_AGE_LIMIT) {
-                percentAfter = (square -> propertyAge - DEPRECIATION_AGE_LIMIT) / 5;
-                if (percentAfter > DEPRECIATION_MAX_PERCENTAGE) {
-                    percentAfter = DEPRECIATION_MAX_PERCENTAGE;
-                }
+                isOldEnough = 1;
             }
 
-            if (percentAfter > percentBefore) {
+            int isFiveRoundMark = 0;
+            if (square -> propertyAge % 5 == 0) {
+                isFiveRoundMark = 1;
+            }
+
+            int isUnderCap = 0;
+            if (square -> depreciationPercent < DEPRECIATION_MAX_PERCENTAGE) {
+                isUnderCap = 1;
+            }
+
+            if (isOldEnough == 1 && isFiveRoundMark == 1 && isUnderCap == 1) {
+                square -> depreciationPercent = square -> depreciationPercent + 1;
                 square -> currentValue = square -> currentValue - (square -> currentValue * 1) / 100;
             }
         }

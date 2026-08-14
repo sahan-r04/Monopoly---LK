@@ -16,6 +16,8 @@ board.c
 =========
 
 1. Railway station purchase price (LKR 2,500) and mortgage value (LKR 1,250)
+
+1. Railway station purchase price (LKR 2,500) and mortgage value (LKR 1,250)
 ------------------------------------------------------------------------------
 Gap: Appendix B's Property Values table only prices the 8 colour groups
 (Brown through Dark Blue). Table 2 gives railway RENT by station count
@@ -513,14 +515,20 @@ strategies, when "below" suggests it shouldn't be) - flagged so this is a
 visible, deliberate tradeoff rather than a silent one.
 
 
-Added while completing yetToMake.txt's remaining gaps
-========================================================
-Everything below was added in the pass that filled in yetToMake.txt's
-remaining finance.c/board.c/events.c/game.c gaps: round-tick systems,
-railway/utility rent, Income Tax, Rule-LK 35 effect reversion, the Economic
-Events deck, and Rule-LK 36's market display. Kept as a separate trailing
-section (rather than renumbering every entry above) so none of the internal
-"(see #18)"-style cross-references above had to change.
+Added after the initial feature-complete pass, then simplified for the viva
+================================================================================
+Entries 26 onward were added once yetToMake.txt's remaining gaps were filled
+in (round-tick systems, railway/utility rent, Income Tax, the Economic
+Events deck, Rule-LK 36's display). An earlier version of several of these
+entries described fairly intricate invented logic - most notably an exact
+reverse-percentage system for Rule-LK 35 (storing which card was drawn,
+looking its target squares back up, and dividing the same percentage back
+out), and an Economic Events deck guessed from card names alone with no rule
+text to check against. That was too much to memorize and defend confidently
+in a viva, so it was deliberately simplified afterward. The entries below
+describe the CURRENT, simpler code - not that intermediate version. Kept as
+a separate trailing section (rather than renumbering entries 1-25 above) so
+the "(see #18)"-style cross-references above don't break.
 
 finance.c
 ===========
@@ -536,36 +544,36 @@ Reasoning: A number was unavoidable since collectTax() must charge
 something concrete. STARTING_CASH (LKR 30,000) was used as an anchor the
 same way entry #18 anchors Conservative Banker's danger threshold to it:
 Income Tax was set at roughly 0.67% of starting cash (LKR 200), deliberately
-kept small relative to rent/purchase figures elsewhere on the board (which
-run into the thousands), since Income Tax reads as a minor, incidental cost
-of passing that one square rather than a game-swinging penalty. The amount
-is stored as a mutable economy.currentIncomeTaxAmount (not just the
-constant) specifically so the "Increase Property Tax" Government Regulation
-(Rule-LK 24) has something to actually increase by 50%, and so that increase
-can later be reverted when the regulation expires (see #33 below).
+kept small relative to rent/purchase figures elsewhere on the board, since
+Income Tax reads as a minor, incidental cost of passing that one square
+rather than a game-swinging penalty. The amount is stored as a mutable
+economy.currentIncomeTaxAmount (not just the constant) so the "Increase
+Property Tax" Government Regulation (Rule-LK 24) has something to actually
+increase by 50% - that increase then stays in effect permanently rather
+than being calculated back out later (see #33 below, which explains why
+nothing in this codebase reverses these changes).
 
-27. depreciateProperties() cuts 1% off currentValue's OWN current value each
-    time a new 5-round threshold is crossed, rather than recomputing from
-    purchasePrice every round
+27. depreciateProperties() tracks a simple running depreciationPercent
+    counter on each Square, and checks timing with a plain modulo
 ------------------------------------------------------------------------------
 Gap: Rule-LK 15/16 say a property depreciates 1% every 5 rounds past its
-50th round of age, capped at 30% total - but "1% of what" isn't specified as
-either "1% of the original purchase price" or "1% of whatever the property
-is worth right now."
+50th round of age, capped at 30% total - but the brief doesn't say how to
+detect "every 5 rounds" in code, or how to remember how much has already
+been taken off so the 30% cap can be enforced correctly.
 
-Reasoning: Recomputing currentValue = purchasePrice x (100 - totalPercent) /
-100 every round was considered first, since it reads most literally as "1%
-of original value per step." It was rejected because currentValue is also
-the one field every card, Regional Development effect, Government
-Regulation, and Market Boom/Decline permanently multiplies in place
-(Rule-LK 34's stacking depends on this) - recomputing purely from
-purchasePrice every round would silently erase every other active
-percentage effect on that square the moment a depreciation threshold is
-crossed. Applying the 1% cut to the property's CURRENT value instead (only
-once, exactly when a new 5-round boundary is crossed, tracked by comparing
-the threshold before and after aging one round) preserves every other
-stacked effect and treats depreciation the same structural way every other
-percentage effect in the codebase already works.
+Reasoning: The simplest way to check "every 5 rounds" is
+propertyAge % 5 == 0 - a single modulo check, not a two-step comparison. To
+enforce the 30% cap, a new Square field (depreciationPercent) just counts
+upward by 1 every time a cut is applied, and the function skips applying
+another cut once it reaches DEPRECIATION_MAX_PERCENTAGE. This whole function
+can be explained in one sentence at a viva - "every 5th round past age 50,
+if I haven't hit 30% yet, take off another 1% and count it" - which was
+chosen deliberately over a cleverer approach (comparing derived thresholds
+before/after aging) that computes the same result but is harder to state
+plainly out loud. The 1% is taken off whatever currentValue happens to be
+AT THAT MOMENT, not the original purchasePrice, so it stacks on top of
+whatever inflation/cards/regulations have already done to the value -
+consistent with how every other percentage change in this codebase works.
 
 28. Railway and utility rent are recalculated fresh at the moment of
     payment, overwriting currentRent rather than composing with it
@@ -573,29 +581,19 @@ percentage effect in the codebase already works.
 Gap: Table 2 (railway rent by station count) and Section 1.1.3 (utility rent
 = dice value x 4 or x 10) both define rent as something computed live at the
 moment of collection - neither is a fixed number the way property rent is.
-But several other systems (Fuel Shortage, Transport Strike, Port Expansion,
-Railway Modernization, Electricity Tariff Increase/Revision, Water Shortage)
-already multiply currentRent in place as if it WERE a fixed, cumulative
-number.
 
-Reasoning: Two designs were possible: (a) keep currentRent as the single
-source of truth and have calculateRailwayRent()/calculateUtilityRent()
-multiply INTO it the same way every other effect does, or (b) compute the
-correct base figure fresh every time rent is actually collected and simply
-overwrite currentRent with it. Option (a) was rejected because railway/
-utility rent isn't a stable base value that effects can meaningfully
-compound onto - it changes on its own (a 4th railway purchased mid-game
-doubles rent) independent of any card ever being drawn. Option (b) - what's
-implemented - guarantees rent is always structurally correct per Table 2/
-Section 1.1.3 at the moment it matters, at the deliberate cost that any
-earlier card/regulation percentage boost specifically targeting railway/
-utility rent gets overwritten rather than compounded the next time that
-square is landed on. This is a bounded, documented simplification: a fully
-correct version would need currentRent split into a stored base and a
-separate running multiplier restored every payment, judged a bigger
-structural change than this assignment's scope warrants.
+Reasoning: Railway/utility rent isn't a stable number that other effects
+can build on top of - it changes on its own the instant a 4th station is
+bought, with no card involved at all. So instead of trying to keep a
+running currentRent that every card multiplies into, calculateRailwayRent()
+and calculateUtilityRent() (finance.c) just compute the correct figure
+straight from Table 2/Section 1.1.3 every single time rent is actually
+paid, and payRent() reads that. This is the simplest option available -
+one formula, computed fresh, no stored running total to keep in sync - at
+the cost that any earlier card/regulation percentage aimed at railway/
+utility rent won't carry over into the next payment.
 
-29. Starting loan interest rate is 10%
+29. Starting loan interest rate uses Table 9's "Stable Economy" rate (8%)
 ------------------------------------------------------------------------------
 Gap: Rule-LK 2 through 7 describe how loan interest compounds and when it's
 charged, but never state what rate a loan actually starts at when the
@@ -603,19 +601,47 @@ simulation begins - baseInterestRate had no initial value anywhere, meaning
 every loan would be silently interest-free until the first card that
 happens to touch the rate is drawn.
 
-Reasoning: 10% was chosen as a plain, round middle-of-the-road figure - low
-enough not to make every loan instantly crushing under Rule-LK 4's
-compounding, high enough that Interest Rate Cut/Increase cards and the
-Reduce Loan Interest regulation have a meaningful, visible effect on top of
-it rather than moving a rate that was effectively zero to begin with. Set
-once in runGame() (game.c) alongside currentIncomeTaxAmount, right after the
-board and players are initialized.
+Reasoning: Appendix D (Table 9) lists five named interest rates tied to
+different "economic conditions" (Economic Boom 5%, Stable Economy 8%,
+Moderate Inflation 10%, High Inflation 12%, Economic Recession 15%), but
+nothing in the main rules says how the simulation is meant to pick between
+them as the game goes on - there's no rule tying a specific condition to a
+specific moment. Rather than inventing an entire extra system just to track
+"which economic condition is Sri Lanka in right now," the simulation simply
+starts on the row that matches how every simulation naturally begins -
+"Stable Economy," 8% - and lets Inflation/cards/regulations move it from
+there exactly as those rules already describe. Set once in runGame()
+(game.c), right after the board and players are initialized. This replaces
+an earlier, less defensible guess of 10% with a real number taken directly
+from the assignment document.
+
+30. retryDamageRepairs() tells genuine disaster damage apart from a
+    Political Rally closure using closedRoundsLeft, not a separate flag
+------------------------------------------------------------------------------
+Gap: Rule-LK 11 says repairs "are automatically performed" once a damaged
+property's owner can afford the cost, but triggerDisaster() only ever
+attempted repair once, at the moment the disaster fired - if the owner
+couldn't afford it then, the property stayed damaged forever with no retry.
+Building that retry created a new problem: Political Rally (entry #31
+below) also sets isDamaged = 1, but that property shouldn't be "repaired"
+for a fee - it should just reopen for free once its 2 rounds are up.
+
+Reasoning: Rather than adding a third flag to distinguish "damaged by
+disaster" from "closed by Political Rally," the existing closedRoundsLeft
+field already draws that line: it's only ever non-zero for a Political
+Rally closure, never for disaster damage. retryDamageRepairs() (called
+every round from applyRoundTickEffects()) only attempts a paid repair on
+squares where isDamaged == 1 AND closedRoundsLeft == 0, so a genuinely
+damaged property retries every round until its owner can afford the 10%
+repair cost (entry #13's formula), while a Political Rally closure is left
+alone entirely and reopens for free via board.c's reopenClosedSquares()
+once its own countdown reaches 0.
 
 
 events.c
 ==========
 
-30. Political Rally reuses the isDamaged flag to represent "closed," on top
+31. Political Rally reuses the isDamaged flag to represent "closed," on top
     of its existing use for disaster damage
 ------------------------------------------------------------------------------
 Gap: Appendix A's Political Rally card says one random property is "closed
@@ -635,8 +661,8 @@ counts that down every round and clears isDamaged automatically once it
 reaches 0, independent of whether the property could ever afford "repairs"
 (which wouldn't make sense here, since nothing is actually broken).
 
-31. Insurance Discount (National Event Card) grants a permanent, economy-wide
-    -20% premium discount rather than a temporary, player-scoped one
+32. Insurance Discount (National Event Card) grants an economy-wide -20%
+    premium discount with no expiry timer of its own
 ------------------------------------------------------------------------------
 Gap: Appendix A's Insurance Discount card says "Premiums reduced by 20%"
 with no stated duration or scope (all players vs. just the drawer).
@@ -649,101 +675,90 @@ economy-wide effect by nature, Rule-LK 24). Rather than adding a second,
 player-scoped discount field purely to keep this one card faithful to "just
 the drawer, temporarily," the existing shared field was reused - meaning
 this card's discount, once drawn, applies to every player's insurance
-purchases from that point on, and (since National Event Card effects are
-excluded from Rule-LK 35 reversion, see #32) never expires on its own for
-the rest of the simulation. A deliberate scope-driven simplification, not an
-oversight.
+purchases from that point on. It has no round-counter of its own, so in
+practice it only ever gets turned back off as a side effect of a
+Government Regulation's own timer running out (see #33) - a small, accepted
+inconsistency rather than building a second discount-duration tracker just
+for this one card.
 
-32. Rule-LK 35 effect reversion is implemented only for economy-level
-    effects (Regional Development Cards, Government Regulations, Market
-    Boom/Decline) - National Event Card effects are left permanent
+33. Regional Development Cards, Government Regulations, and Market
+    Boom/Decline all change prices/rent PERMANENTLY once applied - none of
+    them are calculated back out when their stated duration ends
 ------------------------------------------------------------------------------
-Gap: Rule-LK 35 says active effects should revert once their duration
-expires, without distinguishing the three economy-wide systems (Regional/
-Regulation/Market) from the fourth, player-scoped system (National Event
-Cards, Appendix A).
+Gap: Rule-LK 35 says a Regional Development Card's effect should "return to
+normal market-adjusted values" once its 15 rounds expire, and Rule-LK 31/32
+imply Market Boom/Decline work the same way. But the brief never gives a
+formula for exactly reversing a percentage change - and by the time an
+effect expires, the same square may have ALSO been changed by Inflation, a
+different card, or a Regulation in the meantime, since Rule-LK 34
+explicitly allows several percentage changes to stack on one square.
 
-Reasoning: The three economy-wide systems each write into a small,
-well-defined set of fields (currentValue/currentRent by property GROUP or
-square TYPE, or named Economy fields like currentIncomeTaxAmount) that can
-be identified again later purely from the stored cardId, making a clean,
-mechanical "divide the percentage back out" reversal possible. National
-Event Cards are fundamentally different: they're stored per-PLAYER, several
-of them stack an effect onto whichever squares that specific player owned
-AT DRAW TIME (not a fixed group or type), and if that player's ownership
-changes before the card expires there's no longer a well-defined "which
-squares does this reversal apply to" answer. Correct reversal would need
-tracking the exact set of squares each card touched at draw time (a new
-per-player list, not just a single targetGroup), a meaningfully bigger
-data-model change than extending the three economy-wide systems. Given the
-assignment's scope, the three economy-wide systems were completed fully and
-correctly, while National Event Card effects were left as a documented,
-bounded gap: they still apply correctly when drawn, they just don't
-automatically expire.
+Reasoning: An earlier version of this code tried to reverse each effect
+exactly - storing which card was drawn, looking up which squares it
+touched, and dividing that same percentage back out of currentValue/
+currentRent. It worked, but it needed a lookup shared between "apply" and
+"undo," careful integer division in the right direction, and separate
+handling for roughly a dozen differently-shaped effects - far more than
+could be confidently explained line-by-line in a viva. It was simplified
+instead: once a card, regulation, or market swing changes a square's value
+or rent, that change is now simply left in place forever - exactly the same
+way Inflation (Rule-LK 12-14) already permanently changes those same
+fields elsewhere in this codebase, and exactly the same way National Event
+Card effects (Appendix A) already work too. The active effect itself still
+correctly counts down and turns off (isActive becomes 0, so
+displayMarketConditions() correctly stops listing it, and the next card on
+schedule still gets drawn normally) - only the price change it already made
+is left as-is instead of being calculated back out. This is a deliberate
+accuracy-for-simplicity tradeoff: the simulation is slightly less faithful
+to "values return to normal," but every remaining line is something that
+can be explained in one plain sentence - "once a price changes here, it
+just stays changed" - with no reverse-math to defend.
 
-33. Government Regulations "Reduce Loan Interest" (index 1) and "Luxury
-    Property Tax" (index 3) are excluded from Rule-LK 35 reversion
-------------------------------------------------------------------------------
-Gap: Rule-LK 35 doesn't say whether every active effect must revert, or only
-ones where "reverting" is a meaningful, well-defined operation.
-
-Reasoning: Reduce Loan Interest permanently drifts baseInterestRate down by
-2% when drawn - the same permanent-drift treatment already given to
-Inflation's effect on the same field (Rule-LK 13/14) and to Interest Rate
-Cut/Increase National Event Cards, none of which are ever reverted either.
-Reverting this one regulation's 2% after 20 rounds while every other
-rate-changing effect drifts permanently would be an inconsistent special
-case with no textual basis. Luxury Property Tax has no reversion target at
-all - once it stops being charged, there is no lingering percentage or field
-value on any square to divide back out, since the round-tick charge itself
-reads live from whether the regulation is still active and simply stops
-firing the moment it isn't. Both are correctly-behaving no-ops, not gaps.
-
-34. The Rule-LK 33 group cooldown (30 rounds) starts counting from when a
-    Market Boom/Decline effect ENDS, not from when it starts
+34. The Rule-LK 33 group cooldown (30 rounds) starts counting the moment a
+    group is picked for a boom/decline, not when that boom/decline ends
 ------------------------------------------------------------------------------
 Gap: Rule-LK 33 says a property group "cannot be reselected for Market Boom
 or Decline for 30 rounds," without stating whether that window begins at
-selection or once the (10-round) effect actually finishes.
+selection or once the (10-round) boom/decline itself finishes.
 
-Reasoning: Starting the cooldown at selection time was rejected because it
-would mean a group becomes reselectable again after only 20 additional
-rounds past the end of its own effect (30 total minus the 10 rounds it was
-active) - a number with no clean relationship to either stated duration.
-Starting the cooldown when revertMarketBoomEffect()/
-revertMarketDeclineEffect() actually runs (a full, clean 30 rounds of the
-group being completely untouched) was chosen instead, since "cannot be
-reselected" most naturally describes the period AFTER the group's own effect
-has fully played out, not a window overlapping with the effect still active.
+Reasoning: Starting the cooldown at selection was chosen because it's the
+simplest rule to implement and explain: propertyMarketChange() sets
+groupCooldownRounds[group] = 30 in the very same place it picks the group,
+right next to setting up the boom/decline itself - one line, with no need
+to hook into a separate "this effect just ended" event (which, per #33
+above, no longer exists anyway). Since a boom/decline only lasts 10 of
+those 30 rounds, the group is guaranteed to already be finished and quiet
+for a further 20 rounds before it can be picked again either way, so the
+practical difference between "starts at selection" and "starts at the end"
+is small.
 
-35. The Economic Events deck (Rule-LK 18) invents every one of its 8 effects
-    from the card names alone
+35. The Economic Events deck (Rule-LK 18) is implemented directly from the
+    assignment's effect text, with three sub-effects skipped because they
+    give no number to apply
 ------------------------------------------------------------------------------
-Gap: Only the 8 Economic Event names (Tourism Boom, Fuel Crisis, Heavy
-Monsoon, Economic Recession, Stock Market Boom, Government Housing
-Programme, Foreign Investment, Political Unrest) and their 15-round trigger
-cadence were available when this deck was implemented - unlike every other
-card system in the codebase, no effect wording, percentage, or amount was
-available for any of these 8 cards.
+Gap: Rule-LK 18 lists 8 events, each with 1-3 bullet-point effects. Most
+bullets give a concrete percentage ("Hotels receive double rent," "Property
+values decrease 15%"), but three do not: Heavy Monsoon's "Flood risk
+increases," and Political Unrest's "Riot probability doubles" and "Business
+interruption claims increases" - none of these name a figure, a square
+list, or any other number the code could actually apply.
 
-Reasoning: Rather than leaving this named, explicitly required mechanic
-entirely unbuilt, each event's effect was invented by direct analogy to the
-closest-matching card already built elsewhere from real rule text - Tourism
-Boom mirrors Tourism Hype's hotel-rent boost, Fuel Crisis mirrors Fuel
-Shortage's railway-rent boost, Heavy Monsoon mirrors Heavy Floods'
-random-property-damage pattern, Stock Market Boom/Economic Recession mirror
-Stock Market Rise/Economic Downturn's board-wide value swings, Government
-Housing Programme mirrors the Housing Subsidy regulation's house-cost cut,
-Foreign Investment mirrors Tax Amnesty's flat per-player cash grant, and
-Political Unrest mirrors Labour Strike's construction suspension. This is a
-fundamentally different kind of assumption than every other entry in this
-file (which fill in a missing NUMBER or SQUARE LIST for an effect whose core
-mechanic is already given) - here, the mechanic itself was inferred rather
-than read, since no such text was available for these 8 specifically.
-Additionally, unlike National/Regional/Regulation cards, these effects apply
-immediately and permanently (no ActiveEffect slot, no expiry) - Rule-LK 18
-gives no duration figure the way the other three periodic systems each
-state their own.
+Reasoning: Rather than inventing a number for these three (which would mean
+guessing at a whole mechanic - e.g., a fake "probability" system - that the
+rules never define at all), they're simply left unimplemented, with a
+one-line comment at each spot saying so. Every other bullet in Rule-LK 18 -
+every one that DOES give a number - is implemented directly and literally,
+so this deck is now read from the real rule text rather than guessed from
+the 8 card names alone (an earlier, far less defensible version of this
+same deck did exactly that guessing, before the real assignment text was
+available). Two smaller judgment calls were still needed: "Southern coastal
+properties" and "Coastal properties" reuse the exact same 6-square pool
+already used everywhere else in this file for the word "coastal" (see
+#7/#9/#10 above - one consistent meaning for "coastal," not a different one
+per card), and "Commercial properties" (Foreign Investment) reuses the same
+"every property square, board-wide" reading already used for the National
+Event Card Foreign Funding (see #8 above), for the same reason given there:
+no other board category actually holds a tradeable value to increase.
 
 36. Rule-LK 36's "Current Market Conditions" display prints automatically
     once at the end of every round, rather than on-demand
@@ -786,27 +801,89 @@ purchasing logic uniformly while the regulation is active, rather than
 modifying each of the four strategy branches individually.
 
 
-finance.c (continued)
-========================
+game.c
+========
 
-38. retryDamageRepairs() distinguishes genuine disaster damage from a
-    Political Rally closure using closedRoundsLeft, not a new flag
+38. Bankrupt players are excluded from the "which player is behind" check
+    that decides when a round completes
 ------------------------------------------------------------------------------
-Gap: Rule-LK 11 says repairs "are automatically performed" once a damaged
-property's owner can afford the cost, but triggerDisaster() only ever
-attempted repair once, at the moment the disaster fired - if the owner
-couldn't afford it then, the property stayed damaged forever with no retry.
-Building that retry created a new problem: Political Rally (entry #30) also
-sets isDamaged = 1, but that property shouldn't be "repaired" for a fee - it
-should just reopen for free once its 2 rounds are up.
+Gap: A round is defined by the slowest solvent player's board progress (how
+many times they've passed GO), not by turn order - this itself was an
+explicit correction from the standard practice of treating "everyone took
+one turn" as a round, since players move different distances each turn on
+different dice rolls. But a bankrupt player's playTurn() returns immediately
+without moving them (Rule 14's assets are already liquidated), so their
+lapsCompleted freezes at whatever value it held at the moment of bankruptcy.
 
-Reasoning: Rather than adding a third flag to distinguish "damaged by
-disaster" from "closed by Political Rally," the existing closedRoundsLeft
-field already draws that line: it's only ever non-zero for a Political
-Rally closure, never for disaster damage. retryDamageRepairs() (finance.c,
-called every round from applyRoundTickEffects()) only attempts a paid repair
-on squares where isDamaged == 1 AND closedRoundsLeft == 0, so a genuinely
-damaged property retries every round until its owner can afford the 10%
-repair cost (entry #13's formula), while a Political Rally closure is left
-alone entirely and reopens for free via board.c's reopenClosedSquares() once
-its countdown reaches 0.
+Reasoning: If bankrupt players were still included when finding the
+minimum lapsCompleted across all players, the round counter would freeze
+permanently the instant ANY player went bankrupt - that player's frozen lap
+count would forever be the minimum, so endOfRoundProcessing() (interest,
+inflation, disasters, every card deck, depreciation, etc.) would never fire
+again for the rest of the simulation, silently breaking Rule 15's "500
+rounds or one solvent player" win condition. Excluding bankrupt players
+from this specific check - they've already left the active economy
+entirely, matching how checkBankruptcy() already excludes them from every
+other per-round calculation - keeps round progression tied to the players
+still actually playing the game.
+
+39. The round-boundary check runs after every individual turn, not once per
+    4-turn cycle
+------------------------------------------------------------------------------
+Gap: With round completion now defined by board progress rather than turn
+count, the moment a round actually completes doesn't line up with any fixed
+point in the turnOrder[] rotation - the slowest player could be 1st, 2nd,
+3rd, or 4th in turn order, and whichever one of them happens to complete
+their lap is the one whose turn causes the round to complete.
+
+Reasoning: Checking only after all 4 players had gone (the original,
+simpler structure) would either fire the round-end effects at the wrong
+moment (a full extra sub-cycle late) or require re-deriving whether a
+boundary had already been crossed earlier in that cycle. Moving the check
+to run right after each individual playTurn() call - comparing the current
+slowest lap count against economy.round every time - fires
+endOfRoundProcessing() at the exact turn the boundary is actually crossed,
+regardless of whose turn that happens to be. A side effect worth noting:
+because a "round" now means a full lap of the board by the slowest player
+rather than a fixed 4 turns, substantially more individual turns are needed
+to reach the 500-round cap (roughly lap-length-in-turns times more, since
+average dice rolls of ~7 need about 6 turns per 40-square lap) - this is the
+correct, intended consequence of round now meaning real board progress
+rather than an undercount.
+
+
+board.c (continued)
+======================
+
+40. Each property's purchasePrice/baseRent (and matching currentValue/
+    currentRent) are hardcoded directly in its struct literal, typed in
+    from Rent.csv, rather than read from the file at runtime
+------------------------------------------------------------------------------
+Gap: Rent.csv gives one purchase price and one base rent PER property (e.g.
+Pettah 1,500/100 but Maradana 1,800/120 - different numbers within the same
+Brown group), which is more specific than Appendix B's Property Values
+table (one flat price per colour GROUP, so every Brown property there would
+otherwise share 1,500/500/2,000/750).
+
+Reasoning: A file-reading version of this was built first - a function
+that opened Rent.csv with fopen(), read it line by line, parsed each
+comma-separated row (handling quoted numbers like "1,500") and matched
+property names to board squares. It worked correctly, but file I/O,
+manual CSV parsing, and matching rows back to structs by name is a lot of
+moving parts to hold in your head and explain confidently in a viva. Since
+Rent.csv only has 22 rows and never changes, there's no real benefit to
+reading it at runtime versus just typing the same 22 numbers straight into
+each square's own definition - the end result for the game is identical
+either way. So the file-reading approach was replaced with plain hardcoded
+values, taken directly from Rent.csv, one line per property, the same way
+every other static field (houseCost, hotelCost, mortgageValue) is already
+hardcoded. mortgageValue/houseCost/hotelCost still follow Appendix B's
+flat-per-group figures unchanged, since Rent.csv has no columns for those
+three at all. Rent.csv itself is kept in the project purely as the
+reference the numbers were copied from - the running program never opens
+it, so it can't be affected by anything that happens during a simulation
+either way. Everything that changes a property's price DURING gameplay
+(inflation, cards, disasters, depreciation, market booms/declines) still
+works exactly as before - those all modify the in-memory Square struct's
+currentValue/currentRent directly, which was never tied to the file to
+begin with.

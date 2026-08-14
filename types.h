@@ -102,6 +102,7 @@ typedef struct Square {
     //----Condition & age----//
     int buildingCondition;
     int propertyAge;
+    int depreciationPercent; // running total, capped at DEPRECIATION_MAX_PERCENTAGE
     int isDamaged;
     int closedRoundsLeft; // Political Rally: rounds left before this square reopens
 
@@ -113,8 +114,8 @@ typedef struct Square {
 typedef struct ActiveEffect{
     int isActive; //0 or 1
     int effectId;
-    int cardId; // which card/regulation this is, so it can be looked up again to
-                // revert its effect once roundsRemaining reaches 0 (Rule-LK 35)
+    int cardId; // which card/regulation this is, so its name can be looked
+                // up again later for display (Rule-LK 36) or for a specific check
     PropertyGroup targetGroup;
     int roundsRemaining; //counting remaining rounds get effected
 } ActiveEffect;
@@ -125,6 +126,7 @@ typedef struct Player {
 
     int cash;
     int position;
+    int lapsCompleted; // times passed/landed on GO - drives round counting (game.c)
     int inJail;
     int jailTurns; // counts 0 to 3 while in jail
     int isBankrupt;
@@ -188,7 +190,6 @@ typedef struct RegionalDevelopmentCard {
 typedef struct EconomicEventCard {
     int cardId;              // fixed ID (0-7), same purpose as the other two card types
     char name[50];
-    int cashBonus;           // 0 if no direct cash effect
 } EconomicEventCard;
 
 typedef struct GameState{

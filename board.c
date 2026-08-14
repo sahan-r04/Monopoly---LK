@@ -4,8 +4,6 @@
 
 #include "types.h"
 
-
-
 void monopolyBoard(Square board[BOARD_SIZE]) {
 
     // ---- 0. GO ----//
@@ -64,14 +62,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_BROWN,
 
-        .purchasePrice = 1500,   /* was 1800 — Brown group price is fixed at 1500 (Appendix B) */
-        .baseRent = 100,
+        .purchasePrice = 1800,
+        .baseRent = 120,
         .houseCost = 500,
         .hotelCost = 2000,
         .mortgageValue = 750,
 
-        .currentValue = 1500,
-        .currentRent = 100,
+        .currentValue = 1800,
+        .currentRent = 120,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -127,13 +125,13 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_LIGHT_BLUE,
 
         .purchasePrice = 2500,
-        .baseRent = 150,
+        .baseRent = 180,
         .houseCost = 750,
         .hotelCost = 3000,
         .mortgageValue = 1250,
 
         .currentValue = 2500,
-        .currentRent = 150,
+        .currentRent = 180,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -166,14 +164,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_LIGHT_BLUE,
 
-        .purchasePrice = 2500,
-        .baseRent = 150,
+        .purchasePrice = 2700,
+        .baseRent = 200,
         .houseCost = 750,
         .hotelCost = 3000,
         .mortgageValue = 1250,
 
-        .currentValue = 2500,
-        .currentRent = 150,
+        .currentValue = 2700,
+        .currentRent = 200,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -197,14 +195,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_LIGHT_BLUE,
 
-        .purchasePrice = 2500,
-        .baseRent = 150,
+        .purchasePrice = 3000,
+        .baseRent = 220,
         .houseCost = 750,
         .hotelCost = 3000,
         .mortgageValue = 1250,
 
-        .currentValue = 2500,
-        .currentRent = 150,
+        .currentValue = 3000,
+        .currentRent = 220,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -238,13 +236,13 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_PINK,
 
         .purchasePrice = 3500,
-        .baseRent = 220,
+        .baseRent = 260,
         .houseCost = 1000,
         .hotelCost = 4000,
         .mortgageValue = 1750,
 
         .currentValue = 3500,
-        .currentRent = 220,
+        .currentRent = 260,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -287,14 +285,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_PINK,
 
-        .purchasePrice = 3500,
-        .baseRent = 220,
+        .purchasePrice = 3800,
+        .baseRent = 280,
         .houseCost = 1000,
         .hotelCost = 4000,
         .mortgageValue = 1750,
 
-        .currentValue = 3500,
-        .currentRent = 220,
+        .currentValue = 3800,
+        .currentRent = 280,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -318,14 +316,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_PINK,
 
-        .purchasePrice = 3500,
-        .baseRent = 220,
+        .purchasePrice = 4000,
+        .baseRent = 300,
         .houseCost = 1000,
         .hotelCost = 4000,
         .mortgageValue = 1750,
 
-        .currentValue = 3500,
-        .currentRent = 220,
+        .currentValue = 4000,
+        .currentRent = 300,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -369,13 +367,13 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_ORANGE,
 
         .purchasePrice = 4500,
-        .baseRent = 300,
+        .baseRent = 350,
         .houseCost = 1250,
         .hotelCost = 5000,
         .mortgageValue = 2250,
 
         .currentValue = 4500,
-        .currentRent = 300,
+        .currentRent = 350,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -408,14 +406,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_ORANGE,
 
-        .purchasePrice = 4500,
-        .baseRent = 300,
+        .purchasePrice = 4700,
+        .baseRent = 370,
         .houseCost = 1250,
         .hotelCost = 5000,
         .mortgageValue = 2250,
 
-        .currentValue = 4500,
-        .currentRent = 300,
+        .currentValue = 4700,
+        .currentRent = 370,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -439,14 +437,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_ORANGE,
 
-        .purchasePrice = 4500,
-        .baseRent = 300,
+        .purchasePrice = 5000,
+        .baseRent = 400,
         .houseCost = 1250,
         .hotelCost = 5000,
         .mortgageValue = 2250,
 
-        .currentValue = 4500,
-        .currentRent = 300,
+        .currentValue = 5000,
+        .currentRent = 400,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -480,13 +478,13 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_RED,
 
         .purchasePrice = 5500,
-        .baseRent = 380,
+        .baseRent = 450,
         .houseCost = 1500,
         .hotelCost = 6000,
         .mortgageValue = 2750,
 
         .currentValue = 5500,
-        .currentRent = 380,
+        .currentRent = 450,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -519,14 +517,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_RED,
 
-        .purchasePrice = 5500,
-        .baseRent = 380,
+        .purchasePrice = 5800,
+        .baseRent = 480,
         .houseCost = 1500,
         .hotelCost = 6000,
         .mortgageValue = 2750,
 
-        .currentValue = 5500,
-        .currentRent = 380,
+        .currentValue = 5800,
+        .currentRent = 480,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -550,14 +548,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_RED,
 
-        .purchasePrice = 5500,
-        .baseRent = 380,
+        .purchasePrice = 6000,
+        .baseRent = 500,
         .houseCost = 1500,
         .hotelCost = 6000,
         .mortgageValue = 2750,
 
-        .currentValue = 5500,
-        .currentRent = 380,
+        .currentValue = 6000,
+        .currentRent = 500,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -601,13 +599,13 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_YELLOW,
 
         .purchasePrice = 6500,
-        .baseRent = 460,
+        .baseRent = 600,
         .houseCost = 2000,
         .hotelCost = 8000,
         .mortgageValue = 3250,
 
         .currentValue = 6500,
-        .currentRent = 460,
+        .currentRent = 600,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -631,14 +629,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_YELLOW,
 
-        .purchasePrice = 6500,
-        .baseRent = 460,
+        .purchasePrice = 6800,
+        .baseRent = 620,
         .houseCost = 2000,
         .hotelCost = 8000,
         .mortgageValue = 3250,
 
-        .currentValue = 6500,
-        .currentRent = 460,
+        .currentValue = 6800,
+        .currentRent = 620,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -681,14 +679,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_YELLOW,
 
-        .purchasePrice = 6500,
-        .baseRent = 460,
+        .purchasePrice = 7000,
+        .baseRent = 650,
         .houseCost = 2000,
         .hotelCost = 8000,
         .mortgageValue = 3250,
 
-        .currentValue = 6500,
-        .currentRent = 460,
+        .currentValue = 7000,
+        .currentRent = 650,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -722,13 +720,13 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_GREEN,
 
         .purchasePrice = 8000,
-        .baseRent = 550,
+        .baseRent = 750,
         .houseCost = 2500,
         .hotelCost = 10000,
         .mortgageValue = 4000,
 
         .currentValue = 8000,
-        .currentRent = 550,
+        .currentRent = 750,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -752,14 +750,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_GREEN,
 
-        .purchasePrice = 8000,
-        .baseRent = 550,
+        .purchasePrice = 8300,
+        .baseRent = 780,
         .houseCost = 2500,
         .hotelCost = 10000,
         .mortgageValue = 4000,
 
-        .currentValue = 8000,
-        .currentRent = 550,
+        .currentValue = 8300,
+        .currentRent = 780,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -792,14 +790,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_GREEN,
 
-        .purchasePrice = 8000,
-        .baseRent = 550,
+        .purchasePrice = 8500,
+        .baseRent = 800,
         .houseCost = 2500,
         .hotelCost = 10000,
         .mortgageValue = 4000,
 
-        .currentValue = 8000,
-        .currentRent = 550,
+        .currentValue = 8500,
+        .currentRent = 800,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -852,13 +850,13 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_DARK_BLUE,
 
         .purchasePrice = 10000,
-        .baseRent = 650,
+        .baseRent = 1000,
         .houseCost = 3000,
         .hotelCost = 12000,
         .mortgageValue = 5000,
 
         .currentValue = 10000,
-        .currentRent = 650,
+        .currentRent = 1000,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -891,14 +889,14 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_PROPERTY,
         .group = GROUP_DARK_BLUE,
 
-        .purchasePrice = 10000,
-        .baseRent = 650,
+        .purchasePrice = 12000,
+        .baseRent = 1200,
         .houseCost = 3000,
         .hotelCost = 12000,
         .mortgageValue = 5000,
 
-        .currentValue = 10000,
-        .currentRent = 650,
+        .currentValue = 12000,
+        .currentRent = 1200,
 
         .ownerId = -1,
         .isMortgaged = 0,
@@ -925,6 +923,7 @@ int movePlayer(Player *p, int diceTotal) {
 
     if (passedGo) {
         p -> cash =  p -> cash + PASSING_GO_PAY; // Add cash for passing GO
+        p -> lapsCompleted = p -> lapsCompleted + 1; // tracks real board progress for round counting (game.c)
     }
     return passedGo;
 }

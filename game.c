@@ -497,10 +497,11 @@ void runGame(GameState *gamestate) {
     monopolyBoard(gamestate -> board);
     initializingPlayers(gamestate);
 
-    // ASSUMPTION - starting loan interest rate (10%), since Rule-LK 2-7 never
-    // states one; currentIncomeTaxAmount seeds from the same constant Rule 11
-    // collectTax() reads every round.
-    gamestate -> economy.baseInterestRate = 10;
+    // ASSUMPTION - starting loan interest rate uses Table 9's "Stable
+    // Economy" rate (8%), since the game starts under normal conditions and
+    // no rule states a starting number directly; currentIncomeTaxAmount
+    // seeds from the same constant Rule 11 collectTax() reads every round.
+    gamestate -> economy.baseInterestRate = 8;
     gamestate -> economy.currentIncomeTaxAmount = INCOME_TAX_AMOUNT;
 
     int turnOrder[NUM_PLAYERS];
@@ -514,13 +515,33 @@ void runGame(GameState *gamestate) {
     }
 
     // Main game loop - Rule 15 (max 500 rounds or 1 solvent player left).
+    // A round is NOT simply "every player took one turn" - players move
+    // different distances each turn, so a round only completes once the
+    // player who is furthest BEHIND on the board (fewest laps of GO, not
+    // turn order) has passed GO. Round-based effects (interest, inflation,
+    // disasters, card draws, depreciation, etc.) all key off this.
     while (isGameOver(gamestate) == 0) {
         int p = 0;
         while (p < NUM_PLAYERS) {
             playTurn(gamestate, turnOrder[p]);
+
+            int slowestLaps = -1;
+            int k = 0;
+            while (k < NUM_PLAYERS) {
+                if (gamestate -> players[k].isBankrupt == 0) {
+                    if (slowestLaps == -1 || gamestate -> players[k].lapsCompleted < slowestLaps) {
+                        slowestLaps = gamestate -> players[k].lapsCompleted;
+                    }
+                }
+                k = k + 1;
+            }
+
+            if (slowestLaps > gamestate -> economy.round) {
+                endOfRoundProcessing(gamestate);
+            }
+
             p = p + 1;
         }
-        endOfRoundProcessing(gamestate);
     }
 
     int winner = findWinner(gamestate);

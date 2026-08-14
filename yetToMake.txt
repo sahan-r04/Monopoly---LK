@@ -33,14 +33,14 @@ each one is explained in assumptions.txt, not silently missing.
 Known, documented gaps (not oversights - see assumptions.txt for the
 reasoning behind each)
 ------------------------------------------------------------------------------
-- National Event Card (Appendix A) effects never revert once their
-  roundsRemaining runs out - they apply correctly when drawn, but stay in
-  effect permanently for the rest of the simulation. Rule-LK 35 reversion
-  was built for the three economy-level systems (Regional Development
-  Cards, Government Regulations, Market Boom/Decline) but not this
-  player-scoped one, since it would need tracking the exact set of squares
-  each card touched at draw time rather than a fixed group/type (see
-  assumptions.txt #32).
+- No card, regulation, or market effect (National Event Cards, Regional
+  Development Cards, Government Regulations, Market Boom/Decline, Economic
+  Events) reverts its price/rent change once its roundsRemaining runs out -
+  every one applies correctly when drawn, then stays in effect permanently
+  for the rest of the simulation, the same simple way Inflation already
+  works. This was a deliberate simplification (an exact reversal system was
+  built and then removed) to keep the logic easy to explain and defend; see
+  assumptions.txt #33 for the full reasoning.
 - Business Interruption Insurance's "5 rounds of lost rental income"
   compensation (Section 1.2) isn't tracked - only the repair-cost portion of
   its payout is paid. Would need a per-square rounds-remaining counter and a
