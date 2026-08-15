@@ -1,0 +1,376 @@
+gapsFilled.txt
+================
+A log of gaps that were identified (either by a full requirements audit against
+the assignment document, or by a lecturer clarification) and then actually
+fixed in the code. Each entry says what was wrong, what the fix was, and
+which files changed.
+
+This is different from assumptions.txt (judgment calls filling a silent gap
+in the brief) and yetToMake.txt (things still not built at all). This file
+is specifically a changelog of "found broken/missing -> now fixed."
+
+
+1. Income Tax was a flat, invented LKR 200 - now 15% of cash on hand
+------------------------------------------------------------------------------
+Source: Lecturer clarification - "Income tax base rate at the beginning of
+the game is 15%. Market conditions will affect the rate as well."
+
+What was wrong: Rule 11 never gives an amount, so an earlier pass invented a
+flat LKR 200 (documented as assumption #26 at the time). The lecturer's
+clarification makes clear it should be a percentage rate starting at 15%,
+not a flat number.
+
+Fix: economy.currentIncomeTaxAmount (a flat LKR figure) was renamed to
+economy.currentIncomeTaxPercent and reworked to charge 15% of the player's
+current cash on hand. Cash (not net worth or property value) was chosen as
+the base specifically to keep this tax structurally different from the
+Community Development Fund tax below (which the lecturer explicitly bases
+on property value) - if both taxes used the same base they'd be redundant.
+The existing "Increase Property Tax" Government Regulation (+50%) still
+works exactly as before, just multiplying a percentage now instead of a
+flat amount.
+
+Files changed: types.h (INCOME_TAX_AMOUNT -> INCOME_TAX_STARTING_PERCENT,
+Economy.currentIncomeTaxAmount -> currentIncomeTaxPercent), finance.c
+(collectTax()), events.c (Increase Property Tax regulation), game.c
+(starting value seeded in runGame()).
+
+
+2. Community Development Fund had no effect of its own - now a distinct 10%
+   property-value tax, separate from the National Event Card deck
+------------------------------------------------------------------------------
+Source: Lecturer clarification - "Community development fund will levy a tax
+on the player whom lands on the cell. The tax is 10% of the total assets of
+the player. For the purpose of assets the current market rate of only the
+property (not buildings) is considered. 10% will also be affected by the
+market fluctuations."
+
+What was wrong: Table 1 lists Community Development Fund (square 2) as an
+"Event" type square, the exact same type as the three squares literally
+named "National Event Card" (7, 22, 36). Before this fix, all four Event
+squares ran through the same switch case in playTurn() and drew from the
+same 20-card Appendix A deck - Community Development Fund had no code path
+of its own at all.
+
+Fix: playTurn()'s SQUARE_EVENT case now checks squareIndex == 2 specifically
+and calls a new function, applyCommunityDevelopmentFundTax(), instead of
+drawNationalEventCard(). That function sums currentValue across every
+SQUARE_PROPERTY square the landing player owns (railways and utilities are
+excluded - "property" is read as Table 1's literal Property category, not
+every owned asset) and charges economy.communityFundTaxPercent (10%,
+starting value) of that total. "Not buildings" needed no extra work: this
+codebase's currentValue was already established (assumptions.txt #5) as a
+single combined number with no separate building-value component, so
+excluding buildings was already the default. "10% affected by market
+fluctuations" was read as the RESULTING TAX AMOUNT changing because the
+property values it's computed from already fluctuate with inflation/cards/
+market events (all of which already modify currentValue) - not as the 10%
+figure itself needing a dedicated trigger, since no rule names one. The
+percentage is still stored as a mutable Economy field rather than a literal
+constant, so nothing stops a future regulation from adjusting it directly if
+one is ever added.
+
+Files changed: types.h (new communityFundTaxPercent field,
+COMMUNITY_FUND_TAX_PERCENT constant, applyCommunityDevelopmentFundTax()
+prototype), finance.c (the new function), game.c (SQUARE_EVENT dispatch in
+playTurn(), starting value seeded in runGame()).
+
+
+3. Railway station purchase price didn't match utilities (2,500 instead of
+   1,500)
+------------------------------------------------------------------------------
+Source: Direct user correction - railway and utility purchase prices should
+both be LKR 1,500.
+
+What was wrong: assumptions.txt entry #1 (still true in spirit - neither
+price is given in the brief) had picked 2,500 for railways using
+Light-Blue-group reasoning, while utilities (entry #2) used 1,500 matching
+the cheapest colour group. The user corrected this: both should be the same
+1,500 figure.
+
+Fix: all 4 railway squares' purchasePrice/currentValue changed 2500 -> 1500,
+and mortgageValue changed 1250 -> 750 to preserve the existing 50%-of-
+purchase-price ratio used everywhere else on the board.
+
+Files changed: board.c (all 4 SQUARE_RAILWAY definitions).
+
+
+4. payRent() never printed anything - silently moved cash with no output
+------------------------------------------------------------------------------
+Source: Found while verifying railway/utility rent-payment logic per user
+request. Applies to every square type, not just railways/utilities.
+
+What was wrong: Section 5 (Required Output Messages) explicitly requires a
+"landed on / Rent Paid / Owner" message every time rent changes hands, but
+payRent() (finance.c) had no printf at all - the cash correctly moved, but
+silently, for every property, railway, and utility rent payment in the
+whole simulation.
+
+Fix: added the exact Section 5 format to the end of payRent(), right after
+the cash transfer:
+    X landed on Y.
+    Rent Paid : LKR Z.
+    Owner : W.
+
+Files changed: finance.c (payRent()).
+
+
+5. Rule-LK 27-29 (maintenance system) was entirely unbuilt
+------------------------------------------------------------------------------
+Source: Full requirements audit.
+
+What was wrong: building condition only ever decayed 2%/round with nothing
+to restore it, so every developed property permanently hit 0% condition
+(rent-dead, Table 3) well before round 500. Neither routine maintenance nor
+the 20-round neglect penalty existed at all.
+
+Fix: added performMaintenance() (restores condition to 100%, cost 5%/8% of
+house/hotel cost) picked once per turn by decidePerformMaintenance() (worst
+condition, affordable, first - no strategy states a rule so this is
+strategy-neutral). Added applyStructuralDamage(), a round tick that tracks
+roundsSinceMaintenance per square and applies a one-off penalty (value -15%,
+rent -25%, future maintenance cost +50%) once it exceeds
+MAINTENANCE_NEGLECT_LIMIT (20). Added renovateStructuralDamage() (Rule-LK 29)
+to reverse that penalty for 25% of the building's replacement cost, picked by
+decideRenovateStructuralDamage() as a step-7 financial transaction.
+
+Bug caught while verifying: the new maintenanceCostPercent field defaulted
+to 0 (C zero-fills struct fields board.c's designated initializers don't
+set), not 100 - meaning every maintenance charge computed as (cost * 0) /
+100 = 0, so maintenance was completely free the first time it was built.
+Fixed by adding a loop at the end of monopolyBoard() that sets it to 100 for
+every square. Caught via an isolated synthetic test that manually forced
+the neglect threshold and checked the actual numbers, not just whether the
+code compiled.
+
+Files changed: types.h (3 new Square fields, MAINTENANCE_NEGLECT_LIMIT was
+already defined but unused), board.c (maintenanceCostPercent init loop),
+finance.c (3 new functions), players.c (2 new decide functions), game.c
+(maintenance wired at the very start of playTurn(), structural renovation
+wired into step 7).
+
+
+6. Rule-LK 17 (depreciation renovation) was entirely unbuilt
+------------------------------------------------------------------------------
+Source: Full requirements audit.
+
+What was wrong: depreciationPercent was tracked (Rule-LK 15/16) but nothing
+ever let a player renovate it away, despite Rule-LK 17 and two strategies
+(Section 3.2, 3.4) explicitly describing this action.
+
+Fix: added renovateDepreciation() (finance.c) - restores currentValue and
+currentRent by dividing back out depreciationPercent, resets propertyAge,
+costs 10% of currentValue. decideRenovateDepreciation() (players.c) uses
+each strategy's own stated threshold where one exists (Conservative >10%,
+Opportunistic >15%), and a documented ASSUMPTION for the two strategies with
+no stated rule (Risk Taker: waits for the 30% cap, matching "ignores
+depreciation until repair becomes unavoidable"; Aggressive: renovates as
+soon as any depreciation exists, matching its rent-focused philosophy).
+Wired into playTurn()'s landing action - only triggers when a player lands
+on a property they already own, matching Rule-LK 17's literal wording.
+
+Files changed: finance.c, players.c, game.c.
+
+
+7. Rule-LK 6 foreclosure didn't demolish buildings or cancel insurance
+------------------------------------------------------------------------------
+Source: Full requirements audit.
+
+What was wrong: applyLoanInterest()'s foreclosure branch only transferred
+ownership back to the Bank and cleared the loan lock - numHouses, hasHotel,
+and insurancePolicy were left stale on squares seized as collateral, even
+though Rule-LK 6 explicitly lists both as happening during foreclosure.
+
+Fix: added the same numHouses/hasHotel/insurancePolicy/insuranceRoundsLeft
+reset checkBankruptcy() already used, right before each collateral square
+is released.
+
+Files changed: finance.c (applyLoanInterest()).
+
+
+8. Rule-LK 5's "extend loan period" and "increase loan amount" didn't exist
+------------------------------------------------------------------------------
+Source: Full requirements audit.
+
+What was wrong: landing on the Bank while already holding a loan only ever
+offered repayment - two of Rule-LK 5's four listed actions were missing
+entirely.
+
+Fix: added extendLoan() (resets loanRoundsLeft to 20) and increaseLoan()
+(borrows more, pledging any still-unlocked eligible collateral the same way
+takeLoan() does). decideLoanExtension() is strategy-neutral (ASSUMPTION: a
+player extends once nearly due and unable to clear the balance).
+decideLoanIncrease() is Risk-Taker-only, directly matching Section 3.3's
+"Frequently refinances loans to increase available capital" - no other
+strategy has a stated rule for this, so they don't do it. Wired into
+SQUARE_BANK with a clear priority order: repay, then extend, then increase,
+so only one financial transaction happens per landing (Section 1.1.4).
+
+Files changed: finance.c, players.c, game.c.
+
+
+9. Bankrupt/foreclosed assets were never auctioned (Section 2.6)
+------------------------------------------------------------------------------
+Source: Full requirements audit.
+
+What was wrong: Section 2.6 explicitly lists "a bankrupt player's assets are
+liquidated" and "foreclosed assets return to the Bank" as auction triggers,
+but checkBankruptcy() and the foreclosure branch of applyLoanInterest() both
+just set ownerId = -1 directly - never auctioned.
+
+Fix: both now call runAuction() for each square right after stripping its
+buildings/insurance, instead of leaving it unowned outright. Since
+isBankrupt is already set to 1 before the bankrupt player's own squares are
+auctioned, runAuction()'s existing "bankrupt players don't bid" rule (Rule
+6) correctly keeps them out of their own liquidation.
+
+Files changed: finance.c (checkBankruptcy(), applyLoanInterest()).
+
+
+10. Market/card events only changed currentValue, never purchasePrice
+------------------------------------------------------------------------------
+Source: Lecturer clarification ("purchase price... will be affected by the
+market and other conditions") plus the full requirements audit.
+
+What was wrong: the actual purchase charge (game.c) reads purchasePrice, but
+every National Event Card, Regional Development Card, and Economic Event
+that changes a "value" (as opposed to a "rent") only touched currentValue -
+so most of these systems had no effect on what a property actually cost to
+buy. Only Inflation and Market Boom already touched purchasePrice correctly.
+
+Fix: added a matching purchasePrice line next to every currentValue "value
+effect" line across all three card systems (13 spots total). Left Market
+Decline alone - Rule-LK 32 explicitly doesn't list a purchase price effect
+for it, only Market Boom does (Rule-LK 31), so that asymmetry is correct as
+written, not a gap.
+
+Files changed: events.c (drawNationalEventCard(), drawRegionalDevelopmentCard(),
+drawEconomicEvent()).
+
+
+11. Rule-LK 32's -25% auction starting price wasn't wired in
+------------------------------------------------------------------------------
+Source: Full requirements audit (was already a TODO comment in the code).
+
+Fix: runAuction()'s opening bid now checks if the square's group is the
+active Market Decline's target group, and if so cuts the 50%-of-value
+opening bid by a further 25%.
+
+Files changed: game.c (runAuction()).
+
+
+12. Anti-Speculation Act's "develop within 5 rounds" wasn't enforced
+------------------------------------------------------------------------------
+Source: Full requirements audit.
+
+What was wrong: only the 3-undeveloped-property purchase cap existed. The
+second half of the rule ("Additional purchases require immediate
+development within five rounds") had no code at all.
+
+Fix: added developmentDeadlineRounds to Square, set to 5 whenever a property
+is purchased while the Act is active, and also set for every already-owned
+undeveloped property the moment the Act first activates. A round-tick
+function (enforceDevelopmentDeadlines()) counts it down and, if it hits 0
+while still undeveloped, seizes the property and auctions it off - reusing
+the same liquidation pattern as bankruptcy/foreclosure (#9) rather than
+inventing a new penalty mechanism. Building on the square before the
+deadline clears it.
+
+Files changed: types.h, events.c (deadline set on Act activation), finance.c
+(enforceDevelopmentDeadlines(), added to the round tick), game.c (deadline
+set on purchase, cleared on construction).
+
+
+13. Rule 13's jail release choice was forced/identical for every strategy
+------------------------------------------------------------------------------
+Source: Direct user question ("is it implemented according to his strategy?").
+
+What was wrong: Rule 13 lists three ways out of Jail (pay bail, roll doubles,
+wait 3 turns), but the code only ever rolled doubles each turn and forced a
+bail payment on the 3rd failed attempt - identical for all four players.
+Section 3's "player shall evaluate all legal actions and execute the one
+that best satisfies its behavioural strategy" was not applied to jail at
+all, and no assumption for this was recorded anywhere.
+
+Fix: added decideJailAction() (players.c), called at the top of the jail
+check each turn. ASSUMPTION, given by the user directly: Aggressive Investor
+and Risk Taker pay bail immediately if affordable, falling back to rolling
+doubles if not; Conservative Banker pays only once his cash is at or above
+the average cash of all 4 players; Opportunistic Trader pays only while a
+profitable Market Boom (Rule-LK 30/31) is active. Any strategy whose
+condition isn't met simply waits, and the existing "3 turns then forced
+bail" fallback still applies underneath so nobody stays jailed forever.
+
+Files changed: types.h (decideJailAction() prototype), players.c (the new
+function), game.c (jail-check block in playTurn() restructured to call it).
+
+
+14. decideJailOrOut() refined: Conservative and Opportunistic also roll
+    doubles as a fallback, not just wait
+------------------------------------------------------------------------------
+Source: Direct user correction to entry #13's first version.
+
+What was wrong: only Aggressive Investor and Risk Taker fell back to rolling
+doubles when their bail condition wasn't met - Conservative Banker and
+Opportunistic Trader just waited straight through to the forced-bail
+fallback, skipping Rule 13's doubles option entirely.
+
+Fix: the doubles roll in game.c's jail block is no longer restricted to two
+strategies - every strategy rolls if it didn't pay bail this turn. Also
+tightened Conservative Banker's condition to compare cash AFTER paying
+bail (cash - BAIL_AMOUNT) against the player average, not cash before
+paying, so he never pays himself below the pack.
+
+Files changed: players.c (decideJailOrOut()), game.c (jail-check block).
+
+
+15. Disaster repair cost was a flat 10% for every disaster type, and never
+    counted houses/hotels
+------------------------------------------------------------------------------
+Source: Direct user request to tier the repair cost by disaster severity and
+include buildings in the damage base.
+
+What was wrong: triggerDisaster() charged the same 10% of currentValue no
+matter which of the 5 disaster types struck, and currentValue never actually
+reflects the houses/hotel built on a square (a known gap, assumptions.txt
+#5) - so a disaster on a hotel-covered property repaired for exactly the
+same cost as one on bare land.
+
+Fix: repair cost now scales by disaster severity - Electrical Failure 5%,
+Riot 10%, Flood 15%, Fire 20%, Building Collapse 30% (matches
+DEPRECIATION_MAX_PERCENTAGE, the document's own maximum-damage figure) -
+and is calculated off (currentValue + the square's house/hotel replacement
+value), not currentValue alone. Compensation percentages (80%/100% by
+policy) are unchanged, since they multiply whatever repairCost comes out to.
+
+Files changed: events.c (triggerDisaster()), assumptions.txt (#13 updated).
+
+
+16. decidePerformMaintenance()/decideLoanExtension() gave Risk Taker the
+    same behavior as every other strategy, despite having stated traits
+------------------------------------------------------------------------------
+Source: Direct user request, following up on the "optional strategy
+differentiation" candidates listed in yetToMake.txt.
+
+What was wrong: Rule-LK 27 maintenance and Rule-LK 5 loan extension were
+strategy-neutral for all 4 players, even though Risk Taker has directly
+applicable stated traits elsewhere in Section 3.3 ("ignores property
+depreciation until repair becomes unavoidable," "frequently refinances
+loans to increase available capital") that were never extended to these
+two mechanics.
+
+Fix: decidePerformMaintenance() (renamed to decideToMaintain() per user
+request) now only maintains once a Risk Taker's building condition drops
+to 25% (Table 3's "Building Closed" cutoff) instead of maintaining
+proactively at any condition below 100%. decideLoanExtension() now lets
+Risk Taker extend proactively any time loanRoundsLeft <= 15, instead of
+only when nearly due (<=5) AND unable to fully repay. Both changes are
+Risk-Taker-only; the other three strategies are untouched.
+
+decideRenovateStructuralDamage() was deliberately left strategy-neutral -
+structural damage is a one-time on/off flag, not a graded value like
+building condition, so there's no existing field to threshold a "neglect
+until unavoidable" rule against without inventing new state just for this.
+
+Files changed: types.h (rename), players.c (decideToMaintain(),
+decideLoanExtension()), game.c (call site renamed).

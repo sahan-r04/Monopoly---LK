@@ -46,13 +46,27 @@ reasoning behind each)
   its payout is paid. Would need a per-square rounds-remaining counter and a
   round-tick handler, neither built (no assumptions.txt entry - this one is
   a straightforward remaining gap, not a judgment call).
-- Rule-LK 32's Market Decline "-25% auction starting price" isn't wired into
-  runAuction() (game.c) - the auction's opening bid is always 50% of
-  currentValue (Rule-LK 19) regardless of whether the property's group is
-  currently in a Market Decline. currentValue itself IS reduced by Market
-  Decline already, so the auction price is indirectly lower, just not by
-  the full stated -25% on top of that.
 - The Anti-Speculation Act's 3-undeveloped-property cap is only enforced in
   decideToPurchase() (players.c) - a player already at the cap can still
   acquire a 4th undeveloped property by winning it at auction, since
   runAuction()/decideAuctionBid() don't check economy.antiSpeculationActive.
+
+
+Optional strategy differentiation - reviewed, mostly resolved
+------------------------------------------------------------------------------
+Five decision functions were strategy-neutral because Section 3 never
+mentions that mechanic for any strategy: decideMortgage() (#23),
+decidePayOffMortgage() (#41), decideToMaintain() (#44, renamed from
+decidePerformMaintenance()), decideRenovateStructuralDamage() (#45),
+decideLoanExtension() (#47).
+
+- decideMortgage() / decidePayOffMortgage(): left as-is - mortgaging has no
+  rule text behind it at all beyond "it exists and blocks rent" (Rule 7),
+  so there's nothing to anchor a per-strategy split to.
+- decideToMaintain() / decideLoanExtension(): done - Risk Taker now reuses
+  his stated depreciation-neglect and frequent-refinancing traits for
+  these two. The other three strategies are unchanged.
+- decideRenovateStructuralDamage(): left as-is on purpose - structural
+  damage is a one-time on/off flag, not a graded value like building
+  condition, so there's no existing field to threshold a "neglect until
+  unavoidable" rule against without inventing new state just for this.

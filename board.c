@@ -102,19 +102,17 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_RAILWAY,
         .group = GROUP_NONE,
 
-        .purchasePrice = 2500,   /* ASSUMPTION — not given in the brief */
-        .mortgageValue = 1250,   /* ASSUMPTION — not given in the brief */
-        .baseRent = 250,          /* Table 2: rent for 1 station owned — this IS given */
-        /* no houseCost/hotelCost — railways cannot be developed (1.1.2) */
+        .purchasePrice = 1500,   
+        .mortgageValue = 750,   // Assumed
+        .baseRent = 250,         /* Table 2:rent for 1 station owned */
 
-        .currentValue = 2500,
+        .currentValue = 1500,
         .currentRent = 250,
 
         .ownerId = -1,
         .isMortgaged = 0,
         .isLoanLocked = 0,
-        /* numHouses/hasHotel/buildingCondition/propertyAge/isDamaged/insurance
-           all left at zero-default — none of it applies to a railway */
+        /*Railways can't be developed */
     };
 
     // ---- 6. Bambalapitiya (Property-Light Blue) ---- //
@@ -266,9 +264,9 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_UTILITY,
         .group = GROUP_NONE,
 
-        .purchasePrice = 1500,   /* ASSUMPTION — not given in the brief */
-        .mortgageValue = 750,    /* ASSUMPTION — not given in the brief */
-        .baseRent = 0,           /* rent is dice-based (Section 1.1.3), computed live, not stored here */
+        .purchasePrice = 1500,   
+        .mortgageValue = 750,    //assumption
+        .baseRent = 0,           /*Rent is dice-based, computed live (1.1.3) */
 
         .currentValue = 1500,
         .currentRent = 0,
@@ -340,18 +338,18 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .insuranceRoundsLeft = 0,
     };
 
-    // ---- 15. Kandy Railway Station ---- //
+    // ---- 15. Kandy Railway Station ----  //
     board[15] = (Square){
         .squareIndex = 15,
         .name = "Kandy Railway Station",
         .type = SQUARE_RAILWAY,
         .group = GROUP_NONE,
 
-        .purchasePrice = 2500,
-        .mortgageValue = 1250,
+        .purchasePrice = 1500,
+        .mortgageValue = 750,
         .baseRent = 250,
 
-        .currentValue = 2500,
+        .currentValue = 1500,
         .currentRent = 250,
 
         .ownerId = -1,
@@ -359,7 +357,7 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .isLoanLocked = 0,
     };
 
-    // ---- 16. Negombo (Property-Orange) ---- //
+    // ---- 16. Negombo (Property-Orange) ----//
     board[16] = (Square){
         .squareIndex = 16,
         .name = "Negombo",
@@ -579,11 +577,11 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_RAILWAY,
         .group = GROUP_NONE,
 
-        .purchasePrice = 2500,
-        .mortgageValue = 1250,
+        .purchasePrice = 1500,
+        .mortgageValue = 750,
         .baseRent = 250,
 
-        .currentValue = 2500,
+        .currentValue = 1500,
         .currentRent = 250,
 
         .ownerId = -1,
@@ -821,11 +819,11 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .type = SQUARE_RAILWAY,
         .group = GROUP_NONE,
 
-        .purchasePrice = 2500,
-        .mortgageValue = 1250,
+        .purchasePrice = 1500,
+        .mortgageValue = 750,
         .baseRent = 250,
 
-        .currentValue = 2500,
+        .currentValue = 1500,
         .currentRent = 250,
 
         .ownerId = -1,
@@ -912,30 +910,37 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .insurancePolicy = INSURANCE_NONE,
         .insuranceRoundsLeft = 0,
     };
+
+    // Every square starts with normal (100%) maintenance costs (Rule-LK 27/28).
+    int k = 0;
+    while (k < BOARD_SIZE) {
+        board[k].maintenanceCostPercent = 100;
+        k = k + 1;
+    }
 }
 
-int movePlayer(Player *p, int diceTotal) {
-    int oldPosition = p->position;
+int movePlayer(Player *player, int diceTotal) {
+    int oldPosition = player -> position;
     int newPosition = (oldPosition + diceTotal) % BOARD_SIZE;
 
     int passedGo = (newPosition < oldPosition);
-    p->position = newPosition;
+    player -> position = newPosition;
 
     if (passedGo) {
-        p -> cash =  p -> cash + PASSING_GO_PAY; // Add cash for passing GO
-        p -> lapsCompleted = p -> lapsCompleted + 1; // tracks real board progress for round counting (game.c)
+        player -> cash = player -> cash + PASSING_GO_PAY; // Add cash for passing GO
+        player -> lapsCompleted = player -> lapsCompleted + 1; // used for round counting in game.c
     }
     return passedGo;
 }
 
-void  sendToJail(Player *p){
-    p->position = 10;
-    p->inJail = 1;
-    p->jailTurns = 0;
+void sendToJail(Player *player) {
+    player -> position = 10;
+    player -> inJail = 1;
+    player -> jailTurns = 0;
 }
 
-// Table 6: the rent multiplier for a property's current development level.
-int getRentMultiplier(Square *square) {
+// Table 6: The rent multiplier for a property's current development level.
+int getRentMultiplier(Square *square){
     int multiplier = 1;
 
     if (square -> hasHotel == 1) {
@@ -951,20 +956,17 @@ int getRentMultiplier(Square *square) {
     } else {
         multiplier = 1;
     }
-
     return multiplier;
 }
 
-// Called right after a house/hotel is added, with the multiplier from just
-// before and just after. Scales currentRent by that ratio instead of
-// recalculating from baseRent, so any active card/regulation rent effects
-// already baked into currentRent aren't wiped out by the new construction.
+/* Calculates currentRent by the multiplier ratio instead of recalculating from
+    baseRent, so it keeps any card/regulation effects already applied */
 void recalculateRentAfterConstruction(Square *square, int oldMultiplier, int newMultiplier) {
     square -> currentRent = (square -> currentRent * newMultiplier) / oldMultiplier;
 }
 
-// Political Rally (National Event Card): counts down a closed square's
-// remaining rounds and reopens it once the countdown reaches 0.
+/* Political Rally (National Event Card) - Counts down a closed square's
+remaining rounds and reopens it once the countdown reaches 0 */
 void reopenClosedSquares(GameState *gamestate) {
 
     int i = 0;

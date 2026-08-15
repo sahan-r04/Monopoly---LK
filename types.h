@@ -22,7 +22,8 @@
 #define NATIONAL_CARD_DURATION_ROUNDS           15
 #define REGIONAL_CARD_DURATION_ROUNDS           15
 #define GOVERNMENT_REGULATION_DURATION_ROUNDS   20
-#define INCOME_TAX_AMOUNT                      200
+#define INCOME_TAX_STARTING_PERCENTAGE          15
+#define COMMUNITY_FUND_TAX_PERCENTAGE           10
 #define GROUP_COOLDOWN_ROUNDS                   30
 
 typedef enum SquareType{
@@ -74,50 +75,57 @@ typedef enum DisasterType {
 } DisasterType;
 
 typedef struct Square {
-    int squareIndex; // 0-39 position on the board 
-    char name[MAX_NAME_LEN]; // Name of the square
+    int squareIndex; // position 0-39 on the board
+    char name[MAX_NAME_LEN];
     SquareType type;
-    PropertyGroup group; //GROUP_NONE if isn't a property
+    PropertyGroup group; // GROUP_NONE if not a property
 
-    //----------Static Values--------//
-    int purchasePrice;    
+    // static values
+    int purchasePrice;
     int baseRent;
     int houseCost;
     int hotelCost;
     int mortgageValue;
 
-    //----------Dynamic Values--------//
+    // dynamic values, change during play
     int currentValue;
     int currentRent;
 
-    //------Property Ownership Details-----//
+    // ownership
     int ownerId;
-    int isMortgaged; // 0 or 1
-    int isLoanLocked; // 0 or 1
+    int isMortgaged;
+    int isLoanLocked;
 
-    //----Development (Rule 8,9,10)----//
+    // development (Rule 8,9,10)
     int numHouses;
     int hasHotel;
 
-    //----Condition & age----//
+    // condition and age
     int buildingCondition;
     int propertyAge;
-    int depreciationPercent; // running total, capped at DEPRECIATION_MAX_PERCENTAGE
+    int depreciationPercent; // capped at DEPRECIATION_MAX_PERCENTAGE
     int isDamaged;
-    int closedRoundsLeft; // Political Rally: rounds left before this square reopens
+    int closedRoundsLeft; // Political Rally closure countdown
 
-    //----Insurance----//
-    InsuranceType insurancePolicy; //None, Basic, Comprehensive, Business Interruption
+    // maintenance (Rule-LK 27-29)
+    int roundsSinceMaintenance;
+    int hasStructuralDamage;
+    int maintenanceCostPercent; // 100 = normal, 150 after structural damage
+
+    // Anti-Speculation Act (Rule-LK 24)
+    int developmentDeadlineRounds; // 0 = no deadline active
+
+    // insurance
+    InsuranceType insurancePolicy;
     int insuranceRoundsLeft;
 } Square;
 
 typedef struct ActiveEffect{
-    int isActive; //0 or 1
+    int isActive;
     int effectId;
-    int cardId; // which card/regulation this is, so its name can be looked
-                // up again later for display (Rule-LK 36) or for a specific check
+    int cardId; // which card/regulation this is, for display (Rule-LK 36)
     PropertyGroup targetGroup;
-    int roundsRemaining; //counting remaining rounds get effected
+    int roundsRemaining;
 } ActiveEffect;
 
 typedef struct Player {
@@ -126,21 +134,19 @@ typedef struct Player {
 
     int cash;
     int position;
-    int lapsCompleted; // times passed/landed on GO - drives round counting (game.c)
+    int lapsCompleted; // times passed GO, used for round counting (game.c)
     int inJail;
-    int jailTurns; // counts 0 to 3 while in jail
+    int jailTurns;
     int isBankrupt;
 
-    //-----Each player may have at most 1 active loan----//
-    int hasLoan; // 0 or 1
-    int loanAmount; // outstanding balance
-    int loanInterestRate; 
+    //a player may have at most 1 active loan (Rule-LK 1)
+    int hasLoan;
+    int loanAmount;
+    int loanInterestRate;
     int loanRoundsLeft;
-    int loanCollateral[BOARD_SIZE]; // square(property/utility) pledged to this loan
+    int loanCollateral[BOARD_SIZE]; // squares pledged to this loan
 
-    //-----Active National Event Card effect on this player (Appendix A)-----//
-    // effectId holds the drawn card's rentMultiplierPercentage while this is active.
-    ActiveEffect nationalCard;
+    ActiveEffect nationalCard; // Appendix A card currently affecting this player
 } Player;
 
 typedef struct Economy{
@@ -148,47 +154,39 @@ typedef struct Economy{
     int inflationRate;
     int baseInterestRate;
 
-    //-----Active Regional Development Card effect (Section 2.10)-----//
-    // effectId holds the drawn card's valuePercentageChange while this is active.
-    ActiveEffect regionalCard;
-
-    //-----Active Government Regulation effect (Section 2.7)-----//
-    // effectId holds the index (0-7) of the active regulation in
-    // governmentRegulationNames (events.c).
-    ActiveEffect governmentRegulation;
+    ActiveEffect regionalCard; // Section 2.10
+    ActiveEffect governmentRegulation; // Section 2.7- effectId = regulation index
     ActiveEffect marketBoom;
     ActiveEffect marketDecline;
 
-    //----Rule 33-avoid repeating the same group----//
+    //Rule-LK 33: avoid repeating the same group too soon
     PropertyGroup lastBoomGroup;
     PropertyGroup lastDeclineGroup;
-    int groupCooldownRounds[9]; // index 1-8 (PropertyGroup); rounds left before
-                                 // that group can be picked for a boom/decline again
+    int groupCooldownRounds[9]; // index 1-8 = PropertyGroup
 
-    //----Fields the various cards/regulations write into (Rule-LK 13/24)----//
-    int currentIncomeTaxAmount;        // starts at INCOME_TAX_AMOUNT (Rule 11)
-    int insurancePremiumDiscountPercent; // Insurance Discount / Insurance Regulation
-    int constructionSuspendedRoundsLeft; // Labour Strike
-    int antiSpeculationActive;          // Anti-Speculation Act (0 or 1)
+    // fields the various cards/regulations write into
+    int currentIncomeTaxPercent;   // % of cash charged on Income Tax (Rule 11)
+    int communityFundTaxPercent;   // % of property value charged on CDF
+    int insurancePremiumDiscountPercent;
+    int constructionSuspendedRoundsLeft;
+    int antiSpeculationActive;
 } Economy;
 
 typedef struct NationalEventCard {
-    int cardId;              // fixed ID (0-19) that stays with the card as it moves
-                              // through the deck, so it can still be identified after
-                              // being sent to the bottom
+    int cardId; // fixed ID, stays with the card as the deck reorders
     char name[40];
-    int cashBonus;          // 0 if no direct cash effect
-    int rentMultiplierPercentage;  // 100% = normal, 200% = double, 0 = not applicabl
+    int cashBonus;
+    int rentMultiplierPercentage;
 } NationalEventCard;
 
 typedef struct RegionalDevelopmentCard {
-    int cardId;              // fixed ID (0-11), same purpose as NationalEventCard.cardId
+    int cardId;
     char name[50];
-    int valuePercentageChange;   // +25 = property values in the targetted group rise 25%
+    int valuePercentageChange;
 } RegionalDevelopmentCard;
 
 typedef struct EconomicEventCard {
-    int cardId;              // fixed ID (0-7), same purpose as the other two card types
+    int cardId;
     char name[50];
 } EconomicEventCard;
 
@@ -198,17 +196,13 @@ typedef struct GameState{
     Economy economy;
 } GameState;
 
-//===========================================================================
-// Function prototypes for every function that's called from a .c file other
-// than the one that defines it. Grouped by the file that actually defines
-// each function, so every other file can just #include "types.h" and call
-// them without writing its own duplicate forward declaration.
-//===========================================================================
+// Prototypes for functions called across files, grouped by the file that
+// defines each one.
 
 // ---- board.c ----
 void monopolyBoard(Square board[BOARD_SIZE]);
-int movePlayer(Player *p, int diceTotal);
-void sendToJail(Player *p);
+int movePlayer(Player *player, int diceTotal);
+void sendToJail(Player *player);
 int getRentMultiplier(Square *square);
 void recalculateRentAfterConstruction(Square *square, int oldMultiplier, int newMultiplier);
 void reopenClosedSquares(GameState *gamestate);
@@ -223,10 +217,18 @@ void payRent(GameState *gamestate, int playerIndex, int squareIndex);
 int calculateRailwayRent(GameState *gamestate, int squareIndex);
 int calculateUtilityRent(GameState *gamestate, int squareIndex, int diceTotal);
 void collectTax(GameState *gamestate, int playerIndex);
+void applyCommunityDevelopmentFundTax(GameState *gamestate, int playerIndex);
 int calculateNetWorth(GameState *gamestate, int playerIndex);
 void checkBankruptcy(GameState *gamestate);
 void retryDamageRepairs(GameState *gamestate);
-void applyRoundTickEffects(GameState *gamestate);
+void runFinanceUpdates(GameState *gamestate);
+void doMaintenance(GameState *gamestate, int playerIndex, int squareIndex);
+void checkMaintenanceNeglect(GameState *gamestate);
+void renovateStructuralDamage(GameState *gamestate, int playerIndex, int squareIndex);
+void renovateDepreciation(GameState *gamestate, int playerIndex, int squareIndex);
+void extendLoan(GameState *gamestate, int playerIndex);
+void increaseLoan(GameState *gamestate, int playerIndex, int amount);
+void enforceDevelopmentDeadlines(GameState *gamestate);
 
 // ---- events.c ----
 void drawNationalEventCard(GameState *gamestate, int playerIndex);
@@ -249,6 +251,13 @@ int decideInsuranceTarget(GameState *gamestate, int playerIndex);
 InsuranceType decideInsurancePolicy(GameState *gamestate, int playerIndex, int squareIndex);
 int decideConstruction(GameState *gamestate, int playerIndex);
 int decideMortgage(GameState *gamestate, int playerIndex);
+int decidePayOffMortgage(GameState *gamestate, int playerIndex);
+int decideToMaintain(GameState *gamestate, int playerIndex);
+int decideRenovateStructuralDamage(GameState *gamestate, int playerIndex);
+int decideRenovateDepreciation(GameState *gamestate, int playerIndex, int squareIndex);
+int decideLoanExtension(GameState *gamestate, int playerIndex);
+int decideLoanIncrease(GameState *gamestate, int playerIndex);
+int decideJailOrOut(GameState *gamestate, int playerIndex);
 
 // ---- game.c ----
 void initializingPlayers(GameState *gamestate);
