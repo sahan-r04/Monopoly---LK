@@ -111,6 +111,24 @@ void repayLoan(GameState *gamestate, int playerIndex, int amount){
     }
 }
 
+// Sells a property back to the Bank for its current market value.
+void sellProperty(GameState *gamestate, int playerIndex, int squareIndex) {
+    Square *square = &gamestate -> board[squareIndex];
+    Player *player = &gamestate -> players[playerIndex];
+
+    player -> cash = player -> cash + square -> currentValue;
+
+    square -> ownerId = -1;
+    square -> numHouses = 0;
+    square -> hasHotel = 0;
+    square -> isMortgaged = 0;
+    square -> isLoanLocked = 0;
+    square -> insurancePolicy = INSURANCE_NONE;
+    square -> insuranceRoundsLeft = 0;
+
+    printf("%s sold %s for LKR %d.\n", player -> name, square -> name, square -> currentValue);
+}
+
 // calling once at the end of every complete round for every player with a loan.
 void applyLoanInterest(GameState *gamestate) {
 
@@ -750,7 +768,13 @@ void enforceDevelopmentDeadlines(GameState *gamestate) {
                 isStillUndeveloped = 1;
             }
 
-            if (square -> developmentDeadlineRounds == 0 && isStillUndeveloped == 1) {
+            /* assumed: on the last round before seizure, the owner sells the
+            property back for its current value instead of losing it for
+            nothing, since the assignment gives no rule for this case. */
+            if (square -> developmentDeadlineRounds == 1 && isStillUndeveloped == 1) {
+                int sellerIndex = square -> ownerId;
+                sellProperty(gamestate, sellerIndex, i); // sells before seizure
+            } else if (square -> developmentDeadlineRounds == 0 && isStillUndeveloped == 1) {
                 printf("%s was seized for failing to develop it in time.\n", square -> name);
                 square -> ownerId = -1;
                 runAuction(gamestate, i); // game.c

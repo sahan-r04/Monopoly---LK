@@ -239,6 +239,7 @@ void renovateStructuralDamage(GameState *gamestate, int playerIndex, int squareI
 void renovateDepreciation(GameState *gamestate, int playerIndex, int squareIndex);
 void extendLoan(GameState *gamestate, int playerIndex);
 void increaseLoan(GameState *gamestate, int playerIndex, int amount);
+void sellProperty(GameState *gamestate, int playerIndex, int squareIndex);
 void enforceDevelopmentDeadlines(GameState *gamestate);
 
 // ---- events.c ----
@@ -263,6 +264,7 @@ InsuranceType decideInsurancePolicy(GameState *gamestate, int playerIndex, int s
 int decideConstruction(GameState *gamestate, int playerIndex);
 int decideMortgage(GameState *gamestate, int playerIndex);
 int decidePayOffMortgage(GameState *gamestate, int playerIndex);
+int decideSellProperty(GameState *gamestate, int playerIndex);
 int decideToMaintain(GameState *gamestate, int playerIndex);
 int decideRenovateStructuralDamage(GameState *gamestate, int playerIndex);
 int decideRenovateDepreciation(GameState *gamestate, int playerIndex, int squareIndex);

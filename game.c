@@ -347,6 +347,12 @@ void playTurn(GameState *gamestate, int playerIndex) {
         printf("%s paid off the mortgage on %s for LKR %d.\n", player -> name, payOffSquare -> name, payOffSquare -> mortgageValue);
     }
 
+    // Sell a property if the strategy calls for it (Section 3.3, 3.4).
+    int sellSquareIndex = decideSellProperty(gamestate, playerIndex); // players.c
+    if (sellSquareIndex != -1) {
+        sellProperty(gamestate, playerIndex, sellSquareIndex); // finance.c
+    }
+
     // Rule-LK 29: renovate a structurally damaged building if affordable
     int structuralRenovationIndex = decideRenovateStructuralDamage(gamestate, playerIndex); // players.c
     if (structuralRenovationIndex != -1) {

@@ -63,14 +63,30 @@ int decideToPurchase(GameState *gamestate, int playerIndex, int squareIndex) {
         case STRATEGY_AGGRESSIVE: //Always pays if got funds, at least one future rent
             return ((player -> cash) - (square -> purchasePrice)) >= square -> baseRent;
 
-        case STRATEGY_CONSERVATIVE: //Pays only if 50% of the current cash remains after paying
-            return ((player -> cash) - (square -> purchasePrice)) >= ((player -> cash) / 2);
+        case STRATEGY_CONSERVATIVE: {
+            /* Rule: "Prefers railway stations and utility companies due to
+            their predictable income." assumed: accepts a lower 30% cash-
+            remaining margin for those two types, instead of the usual 50%. */
+            int requiredRemaining = (player -> cash) / 2;
+            if (square -> type == SQUARE_RAILWAY || square -> type == SQUARE_UTILITY) {
+                requiredRemaining = (player -> cash * 30) / 100;
+            }
+            return ((player -> cash) - (square -> purchasePrice)) >= requiredRemaining;
+        }
 
         case STRATEGY_RISK_TAKER: //Buys every property whenever legally possible 
             return (square -> purchasePrice <= player -> cash);
 
-        case STRATEGY_OPPORTUNISTIC: //Only buys if the property's future value > building cost)
-            return (square -> currentValue > square -> purchasePrice) && (player -> cash >= square -> purchasePrice);
+        case STRATEGY_OPPORTUNISTIC: {
+            /* Rule: "Prefers discounted auction purchases rather than
+            direct purchases." assumed: requires a bigger 10% appreciation
+            margin for direct purchases, nudging them toward auctions instead. */
+            int hasBigEnoughMargin = 0;
+            if (square -> currentValue > (square -> purchasePrice * 110) / 100) {
+                hasBigEnoughMargin = 1;
+            }
+            return hasBigEnoughMargin == 1 && (player -> cash >= square -> purchasePrice);
+        }
     }
     return 0;  
 }
@@ -89,6 +105,13 @@ int decideAuctionBid(GameState *gamestate, int playerIndex, int squareIndex, int
     if (player -> strategy == STRATEGY_AGGRESSIVE) {
         // Bids aggressively until 120% of market value
         maxWillingToBid = ((square -> currentValue) * 120) / 100;
+
+        /* Rule: "Prioritizes acquiring premium properties such as Galle
+        Face and Nuwara Eliya." assumed: bids up to 150% for those two
+        specific squares (indexes 39 and 37) instead of the usual 120%. */
+        if (square -> squareIndex == 37 || square -> squareIndex == 39) {
+            maxWillingToBid = ((square -> currentValue) * 150) / 100;
+        }
 
     } else if (player -> strategy == STRATEGY_CONSERVATIVE) {
         // Only bids below the market value
@@ -221,8 +244,14 @@ int decideLoanRepaymentAmount(GameState *gamestate, int playerIndex) {
         }
 
     } else if (player -> strategy == STRATEGY_RISK_TAKER) {
-        // Never voluntarily repays.
-        return 0;
+        /* Assumption - Section 3.3 states no repayment rule, so this reuses
+         Aggressive Investor's own threshold (excess cash > 2x the loan) -
+         without this, the loan only ever grows and never gets paid down*/
+        if (player -> cash > (2 * (player -> loanAmount))) {
+            return player -> loanAmount;
+        } else {
+            return 0;
+        }
 
     } else {
         // Opportuunistic Trader repays only if plenty of cash remains after
@@ -381,7 +410,14 @@ int decideConstruction(GameState *gamestate, int playerIndex) {
             housingSubsidyActive = 1;
         }
 
-        if (gamestate -> economy.inflationRate > 0 && housingSubsidyActive == 0) {
+        /* Builds anyway if this square's development deadline (Rule-LK 24)
+         is about to expire, even during inflation, to avoid seizure.*/
+        int deadlineUrgent = 0;
+        if (gamestate -> board[chosenSquare].developmentDeadlineRounds > 0 && gamestate -> board[chosenSquare].developmentDeadlineRounds <= 2) {
+            deadlineUrgent = 1;
+        }
+
+        if (gamestate -> economy.inflationRate > 0 && housingSubsidyActive == 0 && deadlineUrgent == 0) {
             return -1;
         }
     }
@@ -468,8 +504,110 @@ int decidePayOffMortgage(GameState *gamestate, int playerIndex) {
     return chosenSquare;
 }
 
+/* Risk Taker sells lower-value properties to finance developments;
+Opportunistic Trader sells properties expected to decrease in value after
+economic events. Loan Locked properties can't be sold (Rule-LK 3). */
+int decideSellProperty(GameState *gamestate, int playerIndex) {
+    Player *player = &gamestate -> players[playerIndex];
+
+    if (player -> strategy == STRATEGY_RISK_TAKER) {
+        /* assumed: sells only when cash is critical, same danger line
+         decideMortgage() uses in this file*/
+        int cashIsCritical = 0;
+        if (player -> cash < (STARTING_CASH * 5) / 100) {
+            cashIsCritical = 1;
+        }
+
+        if (cashIsCritical == 0) {
+            return -1;
+        }
+
+        int chosenSquare = -1;
+        int lowestValue = -1;
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            Square *square = &gamestate -> board[i];
+
+            int isEligible = 0;
+            if (square -> ownerId == playerIndex && square -> isLoanLocked == 0 && square -> isMortgaged == 0) {
+                isEligible = 1;
+            }
+
+            /* Rule: "Prioritizes expensive property groups over balanced
+            portfolios." assumed: Green and Dark Blue group properties are
+            kept back and never sold, even as a last resort. */
+            if (square -> group == GROUP_GREEN || square -> group == GROUP_DARK_BLUE) {
+                isEligible = 0;
+            }
+
+            if (isEligible == 1) {
+                if (lowestValue == -1 || square -> currentValue < lowestValue) {
+                    lowestValue = square -> currentValue;
+                    chosenSquare = i;
+                }
+            }
+            i = i + 1;
+        }
+        return chosenSquare;
+
+    } else if (player -> strategy == STRATEGY_OPPORTUNISTIC) {
+        /* assumed: "expected to decrease in value" is read as a property
+            currently caught in an active Market Decline (Rule-LK 32)*/
+        if (gamestate -> economy.marketDecline.isActive == 0) {
+            return -1;
+        }
+
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            Square *square = &gamestate -> board[i];
+
+            int isEligible = 0;
+            if (square -> ownerId == playerIndex && square -> isLoanLocked == 0 && square -> isMortgaged == 0 && square -> group == gamestate -> economy.marketDecline.targetGroup) {
+                isEligible = 1;
+            }
+
+            if (isEligible == 1) {
+                return i;
+            }
+            i = i + 1;
+        }
+        return -1;
+
+    } else if (player -> strategy == STRATEGY_AGGRESSIVE) {
+        /* Rule: "Never voluntarily sells a property unless bankruptcy is
+        unavoidable." assumed: unavoidable is read as net worth already at
+        or below 0, the same condition that actually triggers bankruptcy. */
+        if (calculateNetWorth(gamestate, playerIndex) > 0) {
+            return -1;
+        }
+
+        int chosenSquare = -1;
+        int lowestValue = -1;
+        int i = 0;
+        while (i < BOARD_SIZE) {
+            Square *square = &gamestate -> board[i];
+
+            int isEligible = 0;
+            if (square -> ownerId == playerIndex && square -> isLoanLocked == 0 && square -> isMortgaged == 0) {
+                isEligible = 1;
+            }
+
+            if (isEligible == 1) {
+                if (lowestValue == -1 || square -> currentValue < lowestValue) {
+                    lowestValue = square -> currentValue;
+                    chosenSquare = i;
+                }
+            }
+            i = i + 1;
+        }
+        return chosenSquare;
+    }
+
+    return -1;
+}
+
 /* Fixes the worst-condition building the player can afford. Assmed - Risk Taker
-  waits until it's about to stop earning rent (25% - below buildings will be closed) 
+  waits until it's about to stop earning rent (25% - below buildings will be closed)
   instead of fixing it early.*/
 int decideToMaintain(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
@@ -594,7 +732,14 @@ int decideLoanExtension(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
     if (player -> strategy == STRATEGY_RISK_TAKER) {
-        if (player -> loanRoundsLeft <= 15) {
+        /* Stops extending once the loan outgrows net worth, so foreclosure
+         (Rule-LK 6) can clear it instead of the loan compounding forever.*/
+        int debtTooBig = 0;
+        if (player -> loanAmount > calculateNetWorth(gamestate, playerIndex)) {
+            debtTooBig = 1;
+        }
+
+        if (player -> loanRoundsLeft <= 15 && debtTooBig == 0) {
             return 1;
         }
         return 0;
@@ -623,6 +768,11 @@ int decideLoanIncrease(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
     if (player -> strategy != STRATEGY_RISK_TAKER) {
+        return 0;
+    }
+
+    // Stops piling on more debt once the loan already outgrows net worth.
+    if (player -> loanAmount > calculateNetWorth(gamestate, playerIndex)) {
         return 0;
     }
 
