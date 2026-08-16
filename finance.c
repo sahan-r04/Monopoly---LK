@@ -45,18 +45,17 @@ int calculateMaxLoan(GameState *gamestate, int playerIndex){
 //---- Rule-LK 3 ----//
 void takeLoan(GameState *gamestate, int playerIndex, int amount, int collateralChoice[BOARD_SIZE]){
 
-    // 1) give player the loan money
+    // give player the loan money
 
     gamestate -> players[playerIndex].cash = gamestate -> players[playerIndex].cash + amount;
 
-    // 2) Record the loan details on the player
-
+    // Record the loan details on the player
     gamestate -> players[playerIndex].hasLoan = 1;
     gamestate -> players[playerIndex].loanAmount = amount;
     gamestate -> players[playerIndex].loanInterestRate = gamestate->economy.baseInterestRate;
     gamestate -> players[playerIndex].loanRoundsLeft = LOAN_DURATION_ROUNDS;
 
-    /* 3) Lock up only the squares or properties told to lock by the player(players.c),
+    /* Lock up only the squares or properties told to lock by the player(players.c),
     according to the collateralChoice[] */
 
     int i = 0;
@@ -73,14 +72,12 @@ void takeLoan(GameState *gamestate, int playerIndex, int amount, int collateralC
 //---- Rule-LK 5 ----//
 void repayLoan(GameState *gamestate, int playerIndex, int amount){
 
-    // 1) If this player doesn't have a loan.
-
+    // If this player doesn't have a loan.
     if (gamestate -> players[playerIndex].hasLoan == 0){
         return;
     }
 
-    // 2) Capping the repayment.
-
+    // Capping the repayment
     int currentCash = gamestate -> players[playerIndex].cash;
     int currentLoanAmount = gamestate -> players[playerIndex].loanAmount;
 
@@ -91,13 +88,11 @@ void repayLoan(GameState *gamestate, int playerIndex, int amount){
         amount = currentLoanAmount;
     }
 
-    // 3) Deduct the (capped) repayment from the player cash & reduce the loan balance.
-
+    // Deduct the (capped) repayment from the player cash & reduce the loan balance.
     gamestate -> players[playerIndex].cash = currentCash - amount;
     gamestate -> players[playerIndex].loanAmount = currentLoanAmount - amount;
 
-    // 4) Only if the loan is fully paid off, the collateral will be unlocked.
-
+    // Only if the loan is fully paid off, the collateral will be unlocked
     if (gamestate -> players[playerIndex].loanAmount == 0) {
 
         int i = 0;
@@ -131,20 +126,22 @@ void applyLoanInterest(GameState *gamestate) {
 
         if (playerHasLoan == 1) {
 
-            // 1) Calculating how much interest this player owes this round.
+            // Calculating how much interest this player owes this round.
             int interest = (player -> loanAmount * player -> loanInterestRate) / 100;
 
-            // 2) Add the interest onto the loan balance.
+            // Add the interest onto the loan balance.
             player -> loanAmount = player -> loanAmount + interest;
 
-            // 3) One less round left before the loan is due.
+            // One less round left before the loan is due.
             player -> loanRoundsLeft = player -> loanRoundsLeft - 1;
 
-            // 4) No rounds left, loan is due now: foreclose (Rule-LK 6/7).
+            // No rounds left, loan is due now: foreclose (Rule-LK 6/7).
             if (player -> loanRoundsLeft <= 0) {
 
-                // 4a) Demolish buildings, cancel insurance, then auction off
-                //     every square pledged as collateral (Rule-LK 6, Section 2.6).
+                printf("%s has defaulted.\nCollateral has been foreclosed.\nOutstanding debt cleared.\n", player -> name);
+
+                /* Demolish buildings, cancel insurance, then auction off
+                every square pledged as collateral (Rule-LK 6, Section 2.6). */
                 int j = 0;
                 while (j < BOARD_SIZE) {
                     if (player -> loanCollateral[j] == 1) {
@@ -161,7 +158,7 @@ void applyLoanInterest(GameState *gamestate) {
                     j = j + 1;
                 }
 
-                // 4b) The debt is settled, so wipe out the loan.
+                // The debt is settled, so wipe out the loan.
                 player -> hasLoan = 0;
                 player -> loanAmount = 0;
                 player -> loanInterestRate = 0;
@@ -183,7 +180,7 @@ void getInsurance(GameState *gamestate, int playerIndex, int squareIndex, Insura
         return;
     }
 
-    // 1) Work out the premium percentage for the chosen policy.
+    // Work out the premium percentage for the chosen policy.
     int premiumPercentage = 0;
     if (policy == INSURANCE_BASIC) {
         premiumPercentage = 5;
@@ -193,12 +190,12 @@ void getInsurance(GameState *gamestate, int playerIndex, int squareIndex, Insura
         premiumPercentage = 15;
     }
 
-    // 2) Calculate how much that premium actually costs, after any active
-    //    discount (Insurance Discount card / Insurance Regulation).
+    /* Calculate how much that premium actually costs, after any active
+    discount due to events (Insurance Discount card / Insurance Regulation). */
     int premium = (square -> currentValue * premiumPercentage) / 100;
-    premium = premium - (premium * gamestate -> economy.insurancePremiumDiscountPercent) / 100;
+    premium = premium - (premium * gamestate -> economy.insurancePremiumDiscountPercentage) / 100;
 
-    // 3) Only buy the policy if the player has enough cash for it
+    // Only buy the policy if the player has enough cash for it
     int canAfford = 0;
     if (player -> cash >= premium) {
         canAfford = 1;
@@ -208,24 +205,32 @@ void getInsurance(GameState *gamestate, int playerIndex, int squareIndex, Insura
         player -> cash = player -> cash - premium;
         square -> insurancePolicy = policy;
         square -> insuranceRoundsLeft = 20;
+
+        char *policyName = "Basic Property Insurance";
+        if (policy == INSURANCE_COMPREHENSIVE) {
+            policyName = "Comprehensive Insurance";
+        } else if (policy == INSURANCE_BUSINESS_INTERRUPTION) {
+            policyName = "Business Interruption Insurance";
+        }
+        printf("%s purchased.\nProperty : %s\nPremium : LKR %d.\n", policyName, square -> name, premium);
     }
 }
 
+//----paying rent---//
 void payRent(GameState *gamestate, int playerIndex, int squareIndex) {
     Square *square = &gamestate -> board[squareIndex];
     if (square -> ownerId == -1 || square -> isMortgaged){
         return;
-     } // /No rent due
+     } //No rent due
 
-    // Rule-LK 11: a damaged building can't collect rent until repaired.
+    // Rule-LK 11: A damaged building can't collect rent until repaired
     if (square -> isDamaged == 1) {
         return;
     }
 
-    int rent = square -> currentRent; // assume already recalculated with condition/booms/etc.
+    int rent = square -> currentRent; // assume already recalculated with condition/booms/etc
 
-    // Rule-LK 26 / Table 3: building condition reduces collectable rent -
-    // applied live here rather than baked into currentRent permanently.
+    // Rule-LK 26 / Table 3: building condition reduces collectable rent calculated here. 
     int isDeveloped = 0;
     if (square -> numHouses > 0 || square -> hasHotel == 1) {
         isDeveloped = 1;
@@ -247,16 +252,16 @@ void payRent(GameState *gamestate, int playerIndex, int squareIndex) {
     Player *owner = &gamestate -> players[square -> ownerId];
 
     if (rent > payer -> cash) {
-         rent = payer -> cash; // Could be gone bankrupt after this.
+         rent = payer -> cash; // Could be gone bankrupt after this
     }
     payer -> cash = payer -> cash - rent;
     owner -> cash = owner -> cash + rent;
 
-    // Section 5 required output format.
+    // Printing the output .
     printf("%s landed on %s.\nRent Paid : LKR %d.\nOwner : %s.\n", payer -> name, square -> name, rent, owner -> name);
 }
 
-// Table 2: railway rent depends on how many stations the same owner has.
+// Railway rent depends on how many stations the same owner has
 int calculateRailwayRent(GameState *gamestate, int squareIndex) {
     int ownerId = gamestate -> board[squareIndex].ownerId;
 
@@ -285,7 +290,7 @@ int calculateRailwayRent(GameState *gamestate, int squareIndex) {
     return rent;
 }
 
-// Section 1.1.3: rent is 4x dice value for one utility owned, 10x for both.
+// Rent is 4x dice value for one utility owned, 10 times for both
 int calculateUtilityRent(GameState *gamestate, int squareIndex, int diceTotal) {
     int ownerId = gamestate -> board[squareIndex].ownerId;
 
@@ -310,11 +315,11 @@ int calculateUtilityRent(GameState *gamestate, int squareIndex, int diceTotal) {
     return diceTotal * multiplier;
 }
 
-// Rule 11: collects Income Tax immediately when landed on.
-// Rule 11 + lecturer clarification: 15% of cash on hand, not a flat amount.
+/* Rule 11: collects Income Tax immediately when landed on.
+15% of cash on hand, not a flat amount. */
 void collectTax(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
-    int tax = (player -> cash * gamestate -> economy.currentIncomeTaxPercent) / 100;
+    int tax = (player -> cash * gamestate -> economy.currentIncomeTaxPercentage) / 100;
 
     if (tax > player -> cash) {
         tax = player -> cash;
@@ -324,8 +329,8 @@ void collectTax(GameState *gamestate, int playerIndex) {
     printf("%s paid Income Tax of LKR %d.\n", player -> name, tax);
 }
 
-// Community Development Fund (lecturer clarification): 10% of the player's
-// total Property-type value (not railways/utilities, not buildings).
+/* Community Development Fund: 10% of the player's total Property-type value 
+(not railways/utilities/buildings). */
 void applyCommunityDevelopmentFundTax(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
@@ -339,7 +344,7 @@ void applyCommunityDevelopmentFundTax(GameState *gamestate, int playerIndex) {
         i = i + 1;
     }
 
-    int tax = (totalPropertyValue * gamestate -> economy.communityFundTaxPercent) / 100;
+    int tax = (totalPropertyValue * gamestate -> economy.communityFundTaxPercentage) / 100;
     if (tax > player -> cash) {
         tax = player -> cash;
     }
@@ -353,7 +358,7 @@ int calculateNetWorth(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
     int netWorth = player -> cash;
 
-    // 1) Add up the value of every property this player owns.
+    //Add up the value of every property this player owns
     int i = 0;
     while (i < BOARD_SIZE) {
         Square *square = &gamestate -> board[i];
@@ -374,7 +379,7 @@ int calculateNetWorth(GameState *gamestate, int playerIndex) {
         i = i + 1;
     }
 
-    // 2) Subtract any outstanding loan balance.
+    // Subtract any outstanding loan balance.
     if (player -> hasLoan) {
         netWorth = netWorth - player -> loanAmount;
     }
@@ -382,8 +387,8 @@ int calculateNetWorth(GameState *gamestate, int playerIndex) {
     return netWorth;
 }
 
-// Rule 14: declares a player bankrupt once their liabilities exceed their
-// assets (net worth drops to 0 or below). Called once per round.
+/*Rule 14: declares a player bankrupt once their liabilities exceed their
+assets (net worth drops to 0 or below), Called once per round. */
 void checkBankruptcy(GameState *gamestate) {
 
     int i = 0;
@@ -407,8 +412,8 @@ void checkBankruptcy(GameState *gamestate) {
             if (isNowBankrupt == 1) {
                 player -> isBankrupt = 1;
 
-                // Rule 14: buildings removed, insurance cancelled, then every
-                // owned square is auctioned off (Section 2.6).
+                /* Rule 14: buildings removed, insurance cancelled, then every
+                owned square is auctioned off. */
                 int j = 0;
                 while (j < BOARD_SIZE) {
                     Square *square = &gamestate -> board[j];
@@ -439,7 +444,7 @@ void checkBankruptcy(GameState *gamestate) {
     }
 }
 
-// Rule-LK 15/16: every 5 rounds past age 50, take off 1% value, up to 30%.
+// Rule-LK 15/16: every 5 rounds past age 50, take off 1% value of the property, up to 30%
 void depreciateProperties(GameState *gamestate) {
 
     int i = 0;
@@ -465,13 +470,14 @@ void depreciateProperties(GameState *gamestate) {
             }
 
             int isUnderCap = 0;
-            if (square -> depreciationPercent < DEPRECIATION_MAX_PERCENTAGE) {
+            if (square -> depreciationPercentage < DEPRECIATION_MAX_PERCENTAGE) {
                 isUnderCap = 1;
             }
 
             if (isOldEnough == 1 && isFiveRoundMark == 1 && isUnderCap == 1) {
-                square -> depreciationPercent = square -> depreciationPercent + 1;
+                square -> depreciationPercentage = square -> depreciationPercentage + 1;
                 square -> currentValue = square -> currentValue - (square -> currentValue * 1) / 100;
+                printf("Property\n%s\nhas depreciated by %d%%.\nCurrent Value\nLKR %d.\n", square -> name, square -> depreciationPercentage, square -> currentValue);
             }
         }
 
@@ -479,8 +485,8 @@ void depreciateProperties(GameState *gamestate) {
     }
 }
 
-// Rule-LK 25/26: developed properties lose 2% building condition every
-// round; payRent() already reads buildingCondition to cut rent as it drops.
+/* Rule-LK 25/26: developed properties lose 2% building condition every
+round; payRent() already reads buildingCondition to cut rent as it drops */
 void decayBuildingCondition(GameState *gamestate) {
 
     int i = 0;
@@ -503,8 +509,8 @@ void decayBuildingCondition(GameState *gamestate) {
     }
 }
 
-// Rule-LK 9: counts down every insured square's remaining rounds, warns
-// close to expiry, and cancels the policy once it reaches 0.
+/* Rule-LK 9: counts down every insured square's remaining rounds, warns
+close to expiry, and cancels the policy once it reaches 0. */
 void countdownInsurance(GameState *gamestate) {
 
     int i = 0;
@@ -561,8 +567,8 @@ void applyRecurringLuxuryTax(GameState *gamestate) {
     }
 }
 
-// Rule-LK 11: retries repair each round once the owner can afford it.
-// Political Rally closures (closedRoundsLeft > 0) are skipped, not repaired.
+/* Rule-LK 11: retries repair each round once the owner can afford it.
+Political Rally closures (closedRoundsLeft > 0) are skipped, not repaired. */
 void retryDamageRepairs(GameState *gamestate) {
 
     int i = 0;
@@ -589,8 +595,8 @@ void retryDamageRepairs(GameState *gamestate) {
     }
 }
 
-// Rule-LK 33: ticks down the 30-round cooldown on every property group so
-// it can't be picked again for a boom/decline until the cooldown clears.
+/* Rule-LK 33: ticks down the 30-round cooldown on every property group so
+it can't be picked again for a boom/decline until the cooldown clears. */
 void decrementGroupCooldowns(GameState *gamestate) {
 
     int group = 1;
@@ -602,8 +608,8 @@ void decrementGroupCooldowns(GameState *gamestate) {
     }
 }
 
-// Rule-LK 27: restores condition to 100%. Cost is 5% of house cost (or 8%
-// of hotel cost), scaled by maintenanceCostPercent.
+/* Rule-LK 27: restores condition to 100%. Cost is 5% of house cost (or 8%
+of hotel cost), scaled by maintenanceCostPercentage. */
 void doMaintenance(GameState *gamestate, int playerIndex, int squareIndex) {
     Square *square = &gamestate -> board[squareIndex];
     Player *player = &gamestate -> players[playerIndex];
@@ -615,7 +621,7 @@ void doMaintenance(GameState *gamestate, int playerIndex, int squareIndex) {
         baseCost = (square -> houseCost * 5) / 100;
     }
 
-    int cost = (baseCost * square -> maintenanceCostPercent) / 100;
+    int cost = (baseCost * square -> maintenanceCostPercentage) / 100;
     if (cost > player -> cash) {
         cost = player -> cash;
     }
@@ -626,8 +632,8 @@ void doMaintenance(GameState *gamestate, int playerIndex, int squareIndex) {
     printf("%s performed maintenance on %s.\nMaintenance Cost : LKR %d.\n", player -> name, square -> name, cost);
 }
 
-// Rule-LK 28: 20+ rounds without maintenance causes one-off structural
-// damage - value -15%, rent -25%, future maintenance cost +50%.
+/* Rule-LK 28: 20+ rounds without maintenance causes one-off structural
+damage - value -15%, rent -25%, future maintenance cost +50%. */
 void checkMaintenanceNeglect(GameState *gamestate) {
 
     int i = 0;
@@ -645,7 +651,7 @@ void checkMaintenanceNeglect(GameState *gamestate) {
             if (square -> roundsSinceMaintenance > MAINTENANCE_NEGLECT_LIMIT && square -> hasStructuralDamage == 0) {
                 square -> currentValue = (square -> currentValue * 85) / 100;
                 square -> currentRent = (square -> currentRent * 75) / 100;
-                square -> maintenanceCostPercent = (square -> maintenanceCostPercent * 150) / 100;
+                square -> maintenanceCostPercentage = (square -> maintenanceCostPercentage * 150) / 100;
                 square -> hasStructuralDamage = 1;
                 printf("%s has suffered structural damage from neglect.\n", square -> name);
             }
@@ -655,8 +661,8 @@ void checkMaintenanceNeglect(GameState *gamestate) {
     }
 }
 
-// Rule-LK 29: restores value, rent, and condition on a structurally
-// damaged building. Cost is 25% of the building's replacement cost.
+/* Rule-LK 29: restores value, rent, and condition on a structurally
+damaged building. Cost is 25% of the building's replacement cost. */
 void renovateStructuralDamage(GameState *gamestate, int playerIndex, int squareIndex) {
     Square *square = &gamestate -> board[squareIndex];
     Player *player = &gamestate -> players[playerIndex];
@@ -677,12 +683,12 @@ void renovateStructuralDamage(GameState *gamestate, int playerIndex, int squareI
     square -> buildingCondition = 100;
     square -> hasStructuralDamage = 0;
     square -> roundsSinceMaintenance = 0;
-    square -> maintenanceCostPercent = 100;
+    square -> maintenanceCostPercentage = 100;
     printf("%s renovated the structural damage on %s.\nRenovation Cost : LKR %d.\n", player -> name, square -> name, cost);
 }
 
-// Rule-LK 17: restores depreciation, increases rental, resets property age.
-// Cost is 10% of the property's current market value.
+/* Rule-LK 17: restores depreciation, increases rental, resets property age.
+Cost is 10% of the property's current market value. */
 void renovateDepreciation(GameState *gamestate, int playerIndex, int squareIndex) {
     Square *square = &gamestate -> board[squareIndex];
     Player *player = &gamestate -> players[playerIndex];
@@ -693,9 +699,9 @@ void renovateDepreciation(GameState *gamestate, int playerIndex, int squareIndex
     }
 
     player -> cash = player -> cash - cost;
-    square -> currentValue = (square -> currentValue * 100) / (100 - square -> depreciationPercent);
-    square -> currentRent = (square -> currentRent * 100) / (100 - square -> depreciationPercent);
-    square -> depreciationPercent = 0;
+    square -> currentValue = (square -> currentValue * 100) / (100 - square -> depreciationPercentage);
+    square -> currentRent = (square -> currentRent * 100) / (100 - square -> depreciationPercentage);
+    square -> depreciationPercentage = 0;
     square -> propertyAge = 0;
     printf("%s renovated %s.\nRenovation Cost : LKR %d.\n", player -> name, square -> name, cost);
 }
@@ -707,8 +713,8 @@ void extendLoan(GameState *gamestate, int playerIndex) {
     printf("%s extended their loan period.\nNew Duration : %d Rounds.\n", player -> name, LOAN_DURATION_ROUNDS);
 }
 
-// Rule-LK 5: borrows additional cash on top of an existing loan, pledging
-// any remaining eligible collateral the same way takeLoan() does.
+/* Rule-LK 5: borrows additional cash on top of an existing loan, pledging
+any remaining eligible collateral the same way takeLoan() does. */
 void increaseLoan(GameState *gamestate, int playerIndex, int amount) {
     Player *player = &gamestate -> players[playerIndex];
 
@@ -728,8 +734,8 @@ void increaseLoan(GameState *gamestate, int playerIndex, int amount) {
     printf("%s increased their loan by LKR %d.\nNew Loan Balance : LKR %d.\n", player -> name, amount, player -> loanAmount);
 }
 
-// Anti-Speculation Act (Rule-LK 24): a property still undeveloped once its
-// 5-round deadline runs out is auctioned off.
+/* Anti-Speculation Act (Rule-LK 24): a property still undeveloped once its
+5 round deadline runs out is auctioned off. */
 void enforceDevelopmentDeadlines(GameState *gamestate) {
 
     int i = 0;
@@ -755,8 +761,8 @@ void enforceDevelopmentDeadlines(GameState *gamestate) {
     }
 }
 
-// Calls all of finance.c's per-round update functions in order, so game.c
-// only needs to call this one function once each round.
+/* Calls all of finance.c's per-round update functions in order, so game.c
+only needs to call this one function once each round. */
 void runFinanceUpdates(GameState *gamestate) {
     depreciateProperties(gamestate);
     decayBuildingCondition(gamestate);

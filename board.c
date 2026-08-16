@@ -104,7 +104,7 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
 
         .purchasePrice = 1500,   
         .mortgageValue = 750,   // Assumed
-        .baseRent = 250,         /* Table 2:rent for 1 station owned */
+        .baseRent = 250,        // Rent for 1 station owned 
 
         .currentValue = 1500,
         .currentRent = 250,
@@ -265,8 +265,8 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .group = GROUP_NONE,
 
         .purchasePrice = 1500,   
-        .mortgageValue = 750,    //assumption
-        .baseRent = 0,           /*Rent is dice-based, computed live (1.1.3) */
+        .mortgageValue = 750,    
+        .baseRent = 0,        //Rent is dice-based
 
         .currentValue = 1500,
         .currentRent = 0,
@@ -911,10 +911,10 @@ void monopolyBoard(Square board[BOARD_SIZE]) {
         .insuranceRoundsLeft = 0,
     };
 
-    // Every square starts with normal (100%) maintenance costs (Rule-LK 27/28).
+    //Every square starts with normal (100%) maintenance costs(Rule-LK 27/28).
     int k = 0;
     while (k < BOARD_SIZE) {
-        board[k].maintenanceCostPercent = 100;
+        board[k].maintenanceCostPercentage = 100;
         k = k + 1;
     }
 }
@@ -927,7 +927,7 @@ int movePlayer(Player *player, int diceTotal) {
     player -> position = newPosition;
 
     if (passedGo) {
-        player -> cash = player -> cash + PASSING_GO_PAY; // Add cash for passing GO
+        player -> cash = player -> cash + PASSING_GO_PAY; // Add cash for passing GO - 2000 lkr
         player -> lapsCompleted = player -> lapsCompleted + 1; // used for round counting in game.c
     }
     return passedGo;
@@ -939,7 +939,7 @@ void sendToJail(Player *player) {
     player -> jailTurns = 0;
 }
 
-// Table 6: The rent multiplier for a property's current development level.
+// The rent multiplier for a property's current development level
 int getRentMultiplier(Square *square){
     int multiplier = 1;
 
@@ -965,7 +965,7 @@ void recalculateRentAfterConstruction(Square *square, int oldMultiplier, int new
     square -> currentRent = (square -> currentRent * newMultiplier) / oldMultiplier;
 }
 
-/* Political Rally (National Event Card) - Counts down a closed square's
+/* Political Rally(National Event Card) - Counts down a closed square's
 remaining rounds and reopens it once the countdown reaches 0 */
 void reopenClosedSquares(GameState *gamestate) {
 

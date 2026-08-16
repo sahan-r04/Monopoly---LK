@@ -26,8 +26,8 @@ int monopolyPlay(GameState *gamestate, int playerIndex, PropertyGroup group) {
             }
 
             if (ownedByThisPlayer == 0) {
-                // This square in the group belongs to someone else (or nobody) -
-                // so the player doesn't have a monopoly on this group.
+                /* This square in the group belongs to someone else or nobody -
+                so the player doesn't have a monopoly on this group */
                 hasMonopolyPlay = 0;
             }
         }
@@ -42,8 +42,8 @@ int decideToPurchase(GameState *gamestate, int playerIndex, int squareIndex) {
     Player *player = &gamestate -> players[playerIndex];
     Square *square = &gamestate -> board[squareIndex];
 
-    // Anti-Speculation Act (Rule-LK 24): while active, a player already
-    // holding 3 undeveloped properties may not buy another.
+    /* Anti-Speculation Act (Rule-LK 24): While active, a player already
+    holding 3 undeveloped properties may not buy another */
     if (gamestate -> economy.antiSpeculationActive == 1) {
         int undevelopedCount = 0;
         int i = 0;
@@ -60,13 +60,13 @@ int decideToPurchase(GameState *gamestate, int playerIndex, int squareIndex) {
     }
 
     switch (player -> strategy) {
-        case STRATEGY_AGGRESSIVE: //always pays if got funds, at least one future rent
+        case STRATEGY_AGGRESSIVE: //Always pays if got funds, at least one future rent
             return ((player -> cash) - (square -> purchasePrice)) >= square -> baseRent;
 
-        case STRATEGY_CONSERVATIVE: //pays only if 50% of the current cash remains after paying
+        case STRATEGY_CONSERVATIVE: //Pays only if 50% of the current cash remains after paying
             return ((player -> cash) - (square -> purchasePrice)) >= ((player -> cash) / 2);
 
-        case STRATEGY_RISK_TAKER: //buys every property whenever legally possible 
+        case STRATEGY_RISK_TAKER: //Buys every property whenever legally possible 
             return (square -> purchasePrice <= player -> cash);
 
         case STRATEGY_OPPORTUNISTIC: //Only buys if the property's future value > building cost)
@@ -80,7 +80,7 @@ int decideAuctionBid(GameState *gamestate, int playerIndex, int squareIndex, int
     Player *player = &gamestate -> players[playerIndex];
     Square *square = &gamestate -> board[squareIndex];
 
-    //The minimum increment above the current one (Rule-LK 20).
+    //The minimum increment above the current one (Rule-LK 20)
     int nextBid = currentBid + 250;
 
     //Calculate the highest amount this player's strategy is willing to bid
@@ -104,7 +104,7 @@ int decideAuctionBid(GameState *gamestate, int playerIndex, int squareIndex, int
     }
 
     /*The player only actually places the bid if it's within their strategy's
-    limit and they can really afford it (Rule-LK 22)*/
+    limit and they can really afford it(Rule-LK 22)*/
     int wantsToBid = 0;
     if (nextBid <= maxWillingToBid && nextBid <= player -> cash) {
         wantsToBid = 1;
@@ -123,8 +123,8 @@ int decideLoanAmount(GameState *gamestate, int playerIndex) {
     int maxLoan = calculateMaxLoan(gamestate, playerIndex);
 
     if (player -> strategy == STRATEGY_AGGRESSIVE) {
-        // Rule: loan increases rental income only if a monopoly still has
-        // room to build (Table 6).
+        /* Rule: loan increases rental income only if a monopoly still has
+        room to build (Table 6)*/
         int canImproveRentalIncome = 0;
         int i = 0;
         while (i < BOARD_SIZE) {
@@ -134,7 +134,6 @@ int decideLoanAmount(GameState *gamestate, int playerIndex) {
             if (square -> ownerId == playerIndex) {
                 ownsThisSquare = 1;
             }
-
             int hasSpaceToBuild = 0;
             if (square -> numHouses < MAX_HOUSES && square -> hasHotel == 0) {
                 hasSpaceToBuild = 1;
@@ -161,13 +160,12 @@ int decideLoanAmount(GameState *gamestate, int playerIndex) {
         }
 
     } else if (player -> strategy == STRATEGY_CONSERVATIVE) {
-        // Rule: "Avoids obtaining loans unless bankruptcy is imminent." ASSUMPTION -
-        // "imminent" isn't defined, so cash below 5% of starting cash is the danger line.
+        /* Rule: Avoids obtaining loans unless bankruptcy is imminent. Assumed -
+        "imminent" isn't defined, so cash below 5% of starting cash is the danger line. */
         int bankruptcyImminent = 0;
         if (player -> cash < (STARTING_CASH * 5) / 100) {
             bankruptcyImminent = 1;
         }
-
         if (bankruptcyImminent == 1) {
             return maxLoan;
         } else {
@@ -175,12 +173,11 @@ int decideLoanAmount(GameState *gamestate, int playerIndex) {
         }
 
     } else if (player -> strategy == STRATEGY_RISK_TAKER) {
-        // Rule: "Always borrows the maximum loan permitted."
+        // Rule: Always borrows the maximum loan permitted
         return maxLoan;
 
     } else {
-        // ASSUMPTION: return = current rent income, cost = one round of
-        // maxLoan interest (Rule-LK 4).
+        // Assumed: return = current rent income, cost = one round of maxLoan interest(Rule-LK 4)
         int projectedReturn = 0;
         int i = 0;
         while (i < BOARD_SIZE) {
@@ -208,7 +205,7 @@ int decideLoanRepaymentAmount(GameState *gamestate, int playerIndex) {
     }
 
     if (player -> strategy == STRATEGY_AGGRESSIVE) {
-        // Rule: "Repays loans only when excess cash exceeds twice the outstanding loan."
+        // Rule: Repays loans only when excess cash exceeds twice the outstanding loan.
         if (player -> cash > (2 * (player -> loanAmount))) {
             return player -> loanAmount;
         } else {
@@ -216,7 +213,7 @@ int decideLoanRepaymentAmount(GameState *gamestate, int playerIndex) {
         }
 
     } else if (player -> strategy == STRATEGY_CONSERVATIVE) {
-        // Always tries the full amount, repayLoan() caps it at available cash.
+        // Always tries the full amount, repayLoan() caps it at available cash
         if (player -> cash > 0) {
             return player -> loanAmount;
         } else {
@@ -228,7 +225,7 @@ int decideLoanRepaymentAmount(GameState *gamestate, int playerIndex) {
         return 0;
 
     } else {
-        // STRATEGY_OPPORTUNISTIC: repays only if plenty of cash remains after.
+        // Opportuunistic Trader repays only if plenty of cash remains after
         int cashAfterRepaying = (player -> cash) - (player -> loanAmount);
         if (cashAfterRepaying >= ((player -> cash) / 2)) {
             return player -> loanAmount;
@@ -240,8 +237,8 @@ int decideLoanRepaymentAmount(GameState *gamestate, int playerIndex) {
 
 int decideInsuranceTarget(GameState *gamestate, int playerIndex) {
 
-    // Finds the first developed, uninsured property owned. Not specified
-    // per-strategy, so every strategy uses this same rule.
+    /* Assumption:Finds the first developed, uninsured property owned. Not specified
+    per-strategy, so every strategy uses this same rule. */
     int targetSquare = -1;
     int i = 0;
     while (i < BOARD_SIZE) {
@@ -262,10 +259,11 @@ int decideInsuranceTarget(GameState *gamestate, int playerIndex) {
             isDeveloped = 1;
         }
 
-        // Section 1.1.2: railway stations cannot be insured.
+        // Railway stations cannot be insured or developed 
         int isInsurable = 1;
         if (square -> type == SQUARE_RAILWAY) {
             isInsurable = 0;
+            isDeveloped = 0;
         }
 
         if (ownsThisSquare == 1 && isUninsured == 1 && isDeveloped == 1 && isInsurable == 1 && targetSquare == -1) {
@@ -285,7 +283,7 @@ InsuranceType decideInsurancePolicy(GameState *gamestate, int playerIndex, int s
     InsuranceType chosenPolicy = INSURANCE_NONE;
 
     if (player -> strategy == STRATEGY_AGGRESSIVE) {
-        // Rule: "Basic Insurance for houses, Comprehensive Insurance for hotels."
+        // Rule: Basic Insurance for houses, Comprehensive Insurance for hotels
         if (square -> hasHotel == 1) {
             chosenPolicy = INSURANCE_COMPREHENSIVE;
         } else if (square -> numHouses > 0) {
@@ -293,17 +291,17 @@ InsuranceType decideInsurancePolicy(GameState *gamestate, int playerIndex, int s
         }
 
     } else if (player -> strategy == STRATEGY_CONSERVATIVE) {
-        // Rule: "Always purchases Comprehensive Insurance for every developed property."
+        // Rule: Always purchases Comprehensive Insurance for every developed property
         chosenPolicy = INSURANCE_COMPREHENSIVE;
 
     } else if (player -> strategy == STRATEGY_RISK_TAKER) {
-        // ASSUMPTION: "after a loss" approximated as "already damaged."
+        // Assumed - after a loss approximated as already damaged
         if (square -> isDamaged == 1) {
             chosenPolicy = INSURANCE_BASIC;
         }
 
     } else {
-        // ASSUMPTION: a hotel counts as "high-value" (Comprehensive only).
+        // Assumed - A hotel counts as high-valued (Comprehensive only).
         if (square -> hasHotel == 1) {
             chosenPolicy = INSURANCE_COMPREHENSIVE;
         }
@@ -315,12 +313,12 @@ InsuranceType decideInsurancePolicy(GameState *gamestate, int playerIndex, int s
 int decideConstruction(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
-    // Labour Strike / Political Unrest: no construction while suspended.
+    // Labour Strike /Political Unrest: no construction while suspended
     if (gamestate -> economy.constructionSuspendedRoundsLeft > 0) {
         return -1;
     }
 
-    // Rule 9: build evenly, pick the owned square with fewest houses.
+    // Rule 9:Build evenly - Pick the owned square with fewest houses
     int chosenSquare = -1;
     int lowestHouseCount = MAX_HOUSES + 1;
 
@@ -345,13 +343,23 @@ int decideConstruction(GameState *gamestate, int playerIndex) {
             hasRoomToBuild = 1;
         }
 
-        // Rule: "Never develops hotels until all outstanding loans have been settled."
+        // Rule:Never develops hotels until all outstanding loans have been settled
         int allowedToBuildHere = 1;
         if (player -> strategy == STRATEGY_CONSERVATIVE && square -> numHouses == MAX_HOUSES && player -> hasLoan == 1) {
             allowedToBuildHere = 0;
         }
 
-        if (ownsThisSquare == 1 && isPartOfMonopoly == 1 && hasRoomToBuild == 1 && allowedToBuildHere == 1) {
+        // Can't build what can't be afforded.
+        int buildCost = square -> houseCost;
+        if (square -> numHouses == MAX_HOUSES) {
+            buildCost = square -> hotelCost;
+        }
+        int canAfford = 0;
+        if (buildCost <= player -> cash) {
+            canAfford = 1;
+        }
+
+        if (ownsThisSquare == 1 && isPartOfMonopoly == 1 && hasRoomToBuild == 1 && allowedToBuildHere == 1 && canAfford == 1) {
             if (square -> numHouses < lowestHouseCount) {
                 lowestHouseCount = square -> numHouses;
                 chosenSquare = i;
@@ -365,8 +373,8 @@ int decideConstruction(GameState *gamestate, int playerIndex) {
         return -1;
     }
 
-    // STRATEGY_OPPORTUNISTIC only builds when the timing is right (delays during
-    // inflation, accelerates during a Housing Subsidy regulation).
+    /* Opprtunistic trader only builds when the timing is favourable (delays during
+    inflation, decides during a housing subsidy regulation) */
     if (player -> strategy == STRATEGY_OPPORTUNISTIC) {
         int housingSubsidyActive = 0;
         if (gamestate -> economy.governmentRegulation.isActive == 1 && gamestate -> economy.governmentRegulation.effectId == 2) {
@@ -383,10 +391,10 @@ int decideConstruction(GameState *gamestate, int playerIndex) {
 int decideMortgage(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
-    // ASSUMPTION: last resort, cash below the same danger line used for
-    // Conservative Banker's bankruptcy check.
+    /* Only mortgages a property as the last option, once cash drops below the
+     same 5% of starting cash line used for Conservative Banker's bankruptcy check.*/
     int cashIsCritical = 0;
-    if (player -> cash < (STARTING_CASH * 5) / 100) {
+    if (player -> cash < (STARTING_CASH *5) / 100) {
         cashIsCritical = 1;
     }
 
@@ -394,8 +402,8 @@ int decideMortgage(GameState *gamestate, int playerIndex) {
         return -1;
     }
 
-    // Pick the eligible, unmortgaged, unlocked property with the highest mortgage
-    // value, so one mortgage raises as much emergency cash as possible.
+    /* Pick the eligible, unmortgaged, unlocked property with the highest mortgage
+    value, so one mortgage raises as much emergency cash as possible. */
     int chosenSquare = -1;
     int highestMortgageValue = -1;
 
@@ -424,8 +432,8 @@ int decideMortgage(GameState *gamestate, int playerIndex) {
 int decidePayOffMortgage(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
-    // ASSUMPTION: mirrors decideMortgage(), pays off only if cash stays
-    // above the same danger line afterward.
+    /* Assumption - Only pays off a mortgage if cash stays above the same 5% of starting cash
+     safety line decideMortgage() uses */
     int chosenSquare = -1;
     int lowestMortgageValue = -1;
 
@@ -444,9 +452,9 @@ int decidePayOffMortgage(GameState *gamestate, int playerIndex) {
                 staysSafeAfterPaying = 1;
             }
 
-            // Pick the cheapest eligible mortgage to pay off first, so limited
-            // spare cash reclaims as many rent-earning properties as possible.
-            if (staysSafeAfterPaying == 1) {
+            /* Pick the cheapest eligible mortgage to pay off first, so limited
+            spare cash reclaims as many rent-earning properties as possible.*/
+            if (staysSafeAfterPaying ==1) {
                 if (lowestMortgageValue == -1 || square -> mortgageValue < lowestMortgageValue) {
                     lowestMortgageValue = square -> mortgageValue;
                     chosenSquare = i;
@@ -460,11 +468,9 @@ int decidePayOffMortgage(GameState *gamestate, int playerIndex) {
     return chosenSquare;
 }
 
-// Rule-LK 27: maintains the worst-condition affordable building first.
-// ASSUMPTION: no strategy mentions maintenance directly, but Risk Taker's
-// "ignores depreciation until repair becomes unavoidable" (Section 3.3) is
-// extended here too - he waits until a building is about to stop earning
-// rent (Table 3's 25% closed cutoff) instead of maintaining proactively.
+/* Fixes the worst-condition building the player can afford. Assmed - Risk Taker
+  waits until it's about to stop earning rent (25% - below buildings will be closed) 
+  instead of fixing it early.*/
 int decideToMaintain(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
@@ -493,9 +499,9 @@ int decideToMaintain(GameState *gamestate, int playerIndex) {
         if (isEligible == 1) {
             int baseCost = (square -> houseCost * 5) / 100;
             if (square -> hasHotel == 1) {
-                baseCost = (square -> hotelCost * 8) / 100;
+                baseCost = (square -> hotelCost* 8) / 100;
             }
-            int cost = (baseCost * square -> maintenanceCostPercent) / 100;
+            int cost = (baseCost * square -> maintenanceCostPercentage) / 100;
 
             if (cost <= player -> cash && square -> buildingCondition < lowestCondition) {
                 lowestCondition = square -> buildingCondition;
@@ -509,8 +515,8 @@ int decideToMaintain(GameState *gamestate, int playerIndex) {
     return chosenSquare;
 }
 
-// Rule-LK 29: picks the first affordable structurally damaged property to
-// renovate. ASSUMPTION: strategy-neutral, no rule states this trigger.
+/* Rule-LK 29: picks the first affordable structurally damaged property to
+renovate. Assumed: every strategy behaves the same */
 int decideRenovateStructuralDamage(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
@@ -541,34 +547,34 @@ int decideRenovateStructuralDamage(GameState *gamestate, int playerIndex) {
     return -1;
 }
 
-// Rule-LK 17: decides whether to renovate the property just landed on.
+//Rule-LK 17: decides whether to renovate the property just landed on
 int decideRenovateDepreciation(GameState *gamestate, int playerIndex, int squareIndex) {
     Player *player = &gamestate -> players[playerIndex];
     Square *square = &gamestate -> board[squareIndex];
 
-    if (square -> depreciationPercent == 0) {
+    if (square -> depreciationPercentage == 0) {
         return 0;
     }
 
     int threshold = 0;
     if (player -> strategy == STRATEGY_CONSERVATIVE) {
-        // Rule: "Renovates depreciated properties immediately once depreciation exceeds 10%."
+        // Rule: Renovates depreciated properties immediately once depreciation exceeds 10%
         threshold = 10;
     } else if (player -> strategy == STRATEGY_OPPORTUNISTIC) {
-        // Rule: "Renovates properties once depreciation exceeds 15%."
+        // Rule: Renovates properties once depreciation exceeds 15%.
         threshold = 15;
     } else if (player -> strategy == STRATEGY_RISK_TAKER) {
-        // ASSUMPTION: "ignores depreciation until repair becomes
-        // unavoidable" is read as waiting until the 30% cap is reached.
+        /*Assumed - Ignores depreciation until repair becomes
+        unavoidable is read as waiting until the 30% cap is reached. */
         threshold = DEPRECIATION_MAX_PERCENTAGE - 1;
     } else {
-        // ASSUMPTION: Aggressive Investor has no stated rule, so it
-        // renovates as soon as any depreciation exists (rent-focused).
+        /* Assumed- Aggressive Investor renovates as soon as any 
+        depreciation exists, focusing on rents. */
         threshold = 0;
     }
 
     int wantsToRenovate = 0;
-    if (square -> depreciationPercent > threshold) {
+    if (square -> depreciationPercentage > threshold) {
         wantsToRenovate = 1;
     }
 
@@ -582,10 +588,8 @@ int decideRenovateDepreciation(GameState *gamestate, int playerIndex, int square
     return wantsToRenovate;
 }
 
-// Rule-LK 5: ASSUMPTION - no strategy states an extension rule for most
-// players, so they extend once their loan is nearly due and can't clear it
-// in full. Risk Taker reuses "frequently refinances loans to increase
-// available capital" (Section 3.3) - extends proactively, not just when at risk.
+/* Rule-LK 5: Most players extend a loan only when it's nearly due and
+   can't be paid off. Risk Taker extends early instead, to keep more cash*/
 int decideLoanExtension(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
@@ -610,12 +614,11 @@ int decideLoanExtension(GameState *gamestate, int playerIndex) {
     if (isRunningLow == 1 && cantFullyRepay == 1) {
         wantsToExtend = 1;
     }
-
     return wantsToExtend;
 }
 
-// Rule-LK 5: only Risk Taker proactively increases an existing loan,
-// matching "Frequently refinances loans to increase available capital."
+/* Rule-LK 5: only Risk Taker proactively increases an existing loan,
+matching "Frequently refinances loans to increase available capital." */
 int decideLoanIncrease(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
@@ -623,28 +626,26 @@ int decideLoanIncrease(GameState *gamestate, int playerIndex) {
         return 0;
     }
 
-    // calculateMaxLoan() only counts unpledged, eligible collateral, so
-    // this is exactly how much more can be borrowed on top of the loan.
+    /* calculateMaxLoan() only counts unpledged, eligible collateral, so
+    this is exactly how much more can be borrowed on top of the loan. */
     return calculateMaxLoan(gamestate, playerIndex);
 }
 
 // Rule 13: decides whether a jailed player pays bail voluntarily this turn.
-// ASSUMPTION: rule doesn't say who chooses which of the 3 ways out, so each
-// strategy gets its own bail preference here.
 int decideJailOrOut(GameState *gamestate, int playerIndex) {
     Player *player = &gamestate -> players[playerIndex];
 
     int payBail = 0;
 
     if (player -> strategy == STRATEGY_AGGRESSIVE || player -> strategy == STRATEGY_RISK_TAKER) {
-        // Wants back in the game fast, pays bail immediately if affordable.
+        // Wants back in the game fast, pays bail immediately if got sufficient cash
         if (player -> cash >= BAIL_AMOUNT) {
             payBail = 1;
         }
 
     } else if (player -> strategy == STRATEGY_CONSERVATIVE) {
-        // Only pays if he would still be above the average cash across all
-        // players AFTER paying, else falls back to rolling doubles.
+        /* Assumption - Only pays if he would still be above the average cash 
+           across all players after paying, else falls back to rolling doubles.*/
         int totalCash = 0;
         int i = 0;
         while (i < NUM_PLAYERS) {
@@ -658,9 +659,9 @@ int decideJailOrOut(GameState *gamestate, int playerIndex) {
         }
 
     } else if (player -> strategy == STRATEGY_OPPORTUNISTIC) {
-        // Only pays if a profitable market condition (Rule-LK 30/31 Market
-        // Boom) is currently active, matching "evaluates expected return."
-        // Else falls back to rolling doubles.
+        /* Assumption - Only pays if a profitable market condition(Rule-LK 30/31 Market Boom) 
+           is currently active, matching "evaluates expected return."
+           Else falls back to rolling doubles.*/
         if (gamestate -> economy.marketBoom.isActive == 1 && player -> cash >= BAIL_AMOUNT) {
             payBail = 1;
         }

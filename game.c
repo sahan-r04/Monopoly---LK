@@ -44,12 +44,12 @@ void determineTurnOrder(GameState *gamestate, int order[NUM_PLAYERS]) {
         }
     }
 
-    // Rule 2: only tied players re-roll, everyone else keeps their spot.
+    // Rule 2: Only tied players re-roll, everyone else keeps their spot
     int i = 0;
     while (i < NUM_PLAYERS) {
 
-        // Find how many players in a row, starting at position i, are tied
-        // with whoever is at position i.
+        /* Find how many players in a row, starting at position i, are tied
+        with whoever is at position i.*/
         int tieGroupSize = 1;
         int j = i + 1;
         while (j < NUM_PLAYERS && rolls[order[j]] == rolls[order[i]]) {
@@ -58,9 +58,8 @@ void determineTurnOrder(GameState *gamestate, int order[NUM_PLAYERS]) {
         }
 
         if (tieGroupSize > 1) {
-
-            // Keep re-rolling just this tied group and re-sorting it until no
-            // two of them end up next to each other with the same roll.
+            /* Keep re-rolling just this tied group and re-sorting it until no
+            two of them end up next to each other with the same roll */
             int tieBroken = 0;
             while (tieBroken == 0) {
 
@@ -74,8 +73,7 @@ void determineTurnOrder(GameState *gamestate, int order[NUM_PLAYERS]) {
                     k = k + 1;
                 }
 
-                // Sort just this tied group (positions i .. i+tieGroupSize-1)
-                // by their new rolls, the same selection-sort idea used above.
+                /* Sort just this tied group using selection sort*/
                 int a = i;
                 while (a < i + tieGroupSize - 1) {
                     int b = a + 1;
@@ -113,13 +111,13 @@ void playTurn(GameState *gamestate, int playerIndex) {
         return;
     }
 
-    // 0. Rule-LK 27: maintenance can only happen at the very start of a turn.
+    //Rule-LK 27: maintenance can only happen at the very start of a turn.
     int maintenanceSquareIndex = decideToMaintain(gamestate, playerIndex); // players.c
     if (maintenanceSquareIndex != -1) {
         doMaintenance(gamestate, playerIndex, maintenanceSquareIndex); // finance.c
     }
 
-    // 1. Resolve outstanding penalties, jail check (Rule 13).
+    //Resolve outstanding penalties, jail check (Rule 13)
     if (player -> inJail == 1) {
 
         int leftJail = 0;
@@ -132,8 +130,8 @@ void playTurn(GameState *gamestate, int playerIndex) {
             leftJail = 1;
         }
 
-        // Every strategy falls back to rolling doubles if its own bail
-        // condition wasn't met this turn.
+        /* Every strategy falls back to rolling doubles if its own bail
+         condition wasn't met this turn.*/
         if (leftJail == 0) {
             int jailDie1 = rand() % 6 + 1;
             int jailDie2 = rand() % 6 + 1;
@@ -157,11 +155,16 @@ void playTurn(GameState *gamestate, int playerIndex) {
             }
 
             if (mustPayBailNow == 1) {
-                // After three turns imprisoned, the player must pay bail and leave.
-                player -> cash = player -> cash - BAIL_AMOUNT;
+                /* After three turns imprisoned, the player must pay bail and
+                leave. Capped at available cash, same as rent/tax elsewhere. */
+                int bailPaid = BAIL_AMOUNT;
+                if (bailPaid > player -> cash) {
+                    bailPaid = player -> cash;
+                }
+                player -> cash = player -> cash - bailPaid;
                 player -> inJail = 0;
                 player -> jailTurns = 0;
-                printf("%s paid bail of LKR %d and leaves Jail.\n", player -> name, BAIL_AMOUNT);
+                printf("%s paid bail of LKR %d and leaves Jail.\n", player -> name, bailPaid);
             } else {
                 printf("%s stays in Jail.\n", player -> name);
                 return; // skip rest of turn if still jailed
@@ -176,35 +179,37 @@ void playTurn(GameState *gamestate, int playerIndex) {
     printf("%s rolled %d.\n", player -> name, diceTotal);
 
     // 3. Move clockwise
+    int oldPosition = player -> position;
     int passedGo = movePlayer(player, diceTotal); // from board.c
+    printf("%s moves from Square %d to Square %d.\n", player -> name, oldPosition, player -> position);
     if (passedGo == 1) {
         printf("%s passed GO.\nCollected LKR %d.\nCurrent Balance : LKR %d.\n", player -> name, PASSING_GO_PAY, player -> cash);
     }
 
-    // 4. Resolve landing action (dispatch based on square type)
+    //Resolve landing action (dispatch based on square type)
     Square *square = &gamestate->board[player -> position];
     switch (square -> type) {
         case SQUARE_PROPERTY:
         case SQUARE_RAILWAY:
         case SQUARE_UTILITY:
-            // 5. Purchase property if eligible
+            //Purchase property if eligible
             if (square -> ownerId == -1) {
                 if (decideToPurchase(gamestate, playerIndex, player -> position) == 1) { // players.c
                     player -> cash = (player -> cash) - (square -> purchasePrice);
                     square -> ownerId = playerIndex;
                     printf("%s purchased %s for LKR %d.\n", player -> name, square -> name, square -> purchasePrice);
 
-                    // Anti-Speculation Act (Rule-LK 24): a purchase made while
-                    // active must be developed within 5 rounds.
-                    if (gamestate -> economy.antiSpeculationActive == 1 && square -> type == SQUARE_PROPERTY) {
+                    /* Anti-Speculation Act (Rule-LK 24): A purchase made while
+                      active must be developed within 5 rounds*/
+                    if ((gamestate -> economy.antiSpeculationActive == 1) && (square -> type == SQUARE_PROPERTY)) {
                         square -> developmentDeadlineRounds = 5;
                     }
                 } else {
                     runAuction(gamestate, player -> position); // declined -> auction (Rule 5)
                 }
             } else if (square -> ownerId != playerIndex) {
-                // Table 2/Section 1.1.3: railway/utility rent depends on ownership
-                // count/dice at the moment of payment, so recalculate it fresh here.
+                /* railway/utility rent depends on ownership count/dice at the 
+                   moment of payment, so recalculate it newly here*/
                 if (square -> type == SQUARE_RAILWAY) {
                     square -> currentRent = calculateRailwayRent(gamestate, player -> position); // finance.c
                 } else if (square -> type == SQUARE_UTILITY) {
@@ -212,7 +217,7 @@ void playTurn(GameState *gamestate, int playerIndex) {
                 }
                 payRent(gamestate, playerIndex, player -> position); // finance.c
             } else if (square -> type == SQUARE_PROPERTY) {
-                // Rule-LK 17: landing on your own property offers renovation.
+                // Rule-LK 17: Landing on your own property offers renovation.
                 if (decideRenovateDepreciation(gamestate, playerIndex, player -> position) == 1) { // players.c
                     renovateDepreciation(gamestate, playerIndex, player -> position); // finance.c
                 }
@@ -220,7 +225,7 @@ void playTurn(GameState *gamestate, int playerIndex) {
             break;
 
         case SQUARE_TAX:
-            collectTax(gamestate, playerIndex); // finance.c, Rule 11
+            collectTax(gamestate, playerIndex); //finance.c -  Rule 11
             break;
 
         case SQUARE_GO_TO_JAIL:
@@ -228,8 +233,8 @@ void playTurn(GameState *gamestate, int playerIndex) {
             break;
 
         case SQUARE_EVENT:
-            // Community Development Fund (square 2) has its own tax, the
-            // other three Event squares draw a National Event Card.
+            /*Community Development Fund (square 2) has its own tax, the
+              other three Event squares draw a National Event Card*/
             if (square -> squareIndex == 2) {
                 applyCommunityDevelopmentFundTax(gamestate, playerIndex); // finance.c
             } else {
@@ -238,27 +243,27 @@ void playTurn(GameState *gamestate, int playerIndex) {
             break;
 
         case SQUARE_BANK:
-            // Rule-LK 5: one financial transaction - repay, extend, increase,
-            // or take out a new loan, in that priority order.
+            /* Rule-LK 5: one financial transaction - repay, extend, increase,
+               or take out a new loan, in that priority order*/
             if (player -> hasLoan == 1) {
                 int repayAmount = decideLoanRepaymentAmount(gamestate, playerIndex); // players.c
                 if (repayAmount > 0) {
-                    repayLoan(gamestate, playerIndex, repayAmount); // finance.c
+                    repayLoan(gamestate, playerIndex, repayAmount); //finance.c
                     printf("%s repaid LKR %d.\n", player -> name, repayAmount);
                 } else if (decideLoanExtension(gamestate, playerIndex) == 1) { // players.c
                     extendLoan(gamestate, playerIndex); // finance.c
                 } else {
-                    int increaseAmount = decideLoanIncrease(gamestate, playerIndex); // players.c
+                    int increaseAmount = decideLoanIncrease(gamestate, playerIndex); //players.c
                     if (increaseAmount > 0) {
                         increaseLoan(gamestate, playerIndex, increaseAmount); // finance.c
                     }
                 }
             } else {
-                int loanAmount = decideLoanAmount(gamestate, playerIndex); // players.c
+                int loanAmount = decideLoanAmount(gamestate, playerIndex); //players.c
                 if (loanAmount > 0) {
 
-                    // ASSUMPTION: pledges every eligible owned square as
-                    // collateral, same set calculateMaxLoan() uses.
+                    /* Assumed - pledges every eligible owned square as
+                       collateral, same set of properties calculateMaxLoan() uses*/
                     int collateralChoice[BOARD_SIZE];
                     int c = 0;
                     while (c < BOARD_SIZE) {
@@ -278,7 +283,7 @@ void playTurn(GameState *gamestate, int playerIndex) {
             break;
 
         case SQUARE_INSURANCE:
-            // Section 2.2: pick a property to insure, and which policy to buy.
+            // Pick a property to insure, and which policy to buy.
             {
                 int targetSquareIndex = decideInsuranceTarget(gamestate, playerIndex); // players.c
                 if (targetSquareIndex != -1) {
@@ -292,10 +297,10 @@ void playTurn(GameState *gamestate, int playerIndex) {
             break;
 
         default:
-            break; // SQUARE_START, SQUARE_FREE_PARKING, SQUARE_JAIL: nothing to do
+            break; // SQUARE_START, SQUARE_FREE_PARKING, SQUARE_JAIL
     }
 
-    // 6. Construct buildings if eligible (Rule 8/9).
+    //Construct buildings if eligible (Rule 8,9).
     int buildSquareIndex = decideConstruction(gamestate, playerIndex); // players.c
     if (buildSquareIndex != -1) {
         Square *buildSquare = &gamestate -> board[buildSquareIndex];
@@ -321,11 +326,11 @@ void playTurn(GameState *gamestate, int playerIndex) {
         int newRentMultiplier = getRentMultiplier(buildSquare); // board.c
         recalculateRentAfterConstruction(buildSquare, oldRentMultiplier, newRentMultiplier); // board.c
 
-        // Anti-Speculation Act: developed in time, deadline is lifted.
+        // Anti-Speculation Act(Rule-LK 24)
         buildSquare -> developmentDeadlineRounds = 0;
     }
 
-    // 7. Mortgage a property if needed, or pay one off if cash allows.
+    //Mortgage a property if needed, or pay one off if cash allows
     int mortgageSquareIndex = decideMortgage(gamestate, playerIndex); // players.c
     if (mortgageSquareIndex != -1) {
         Square *mortgageSquare = &gamestate -> board[mortgageSquareIndex];
@@ -342,22 +347,22 @@ void playTurn(GameState *gamestate, int playerIndex) {
         printf("%s paid off the mortgage on %s for LKR %d.\n", player -> name, payOffSquare -> name, payOffSquare -> mortgageValue);
     }
 
-    // Rule-LK 29: renovate a structurally damaged building if affordable.
+    // Rule-LK 29: renovate a structurally damaged building if affordable
     int structuralRenovationIndex = decideRenovateStructuralDamage(gamestate, playerIndex); // players.c
     if (structuralRenovationIndex != -1) {
         renovateStructuralDamage(gamestate, playerIndex, structuralRenovationIndex); // finance.c
     }
 
-    // 8. End turn.
+    //End turn.
 }
 
-// Rule 6, Rule-LK 19-23: runs an auction for one property among all solvent players.
+//Rule 6, Rule-LK 19 to 23: runs an auction for one property among all remaining players
 void runAuction(GameState *gamestate, int squareIndex) {
 
     Square *square = &gamestate -> board[squareIndex];
 
-    // 1) Opening bid is 50% of market value (Rule-LK 19), further reduced
-    //    25% if this group is in a Market Decline (Rule-LK 32).
+     /*Opening bid is 50% of market value (Rule-LK 19), further reduced
+      25% if this group is in a Market Decline (Rule-LK 32)*/
     int currentBid = square -> currentValue / 2;
     if (gamestate -> economy.marketDecline.isActive == 1 && square -> group == gamestate -> economy.marketDecline.targetGroup) {
         currentBid = (currentBid * 75) / 100;
@@ -366,7 +371,7 @@ void runAuction(GameState *gamestate, int squareIndex) {
 
     printf("Auction Started.\n\nProperty :\n%s\n\nOpening Bid :\nLKR %d.\n\n", square -> name, currentBid);
 
-    // 2) Bankrupt players never take part (Rule 6). Everyone else starts in.
+    //Bankrupt players never take part (Rule 6)
     int stillInGame[NUM_PLAYERS];
     int p = 0;
     while (p < NUM_PLAYERS) {
@@ -378,8 +383,8 @@ void runAuction(GameState *gamestate, int squareIndex) {
         p = p + 1;
     }
 
-    // 3) Keep going until only one bidder (or nobody) is left. Withdrawal
-    //    is permanent (Rule-LK 21).
+    /*  Keep going until only one bidder (or nobody) is left. Withdrawal
+        is permanent(Rule-LK 21)*/
     int auctionOngoing = 1;
     while (auctionOngoing == 1) {
 
@@ -392,13 +397,12 @@ void runAuction(GameState *gamestate, int squareIndex) {
 
                 int bid = decideAuctionBid(gamestate, i, squareIndex, currentBid);
 
-                // A real bid must clear the minimum increment (Rule-LK 20) and never
-                // exceed the player's cash on hand (Rule-LK 22).
+                /* A real bid must clear the minimum increment (Rule-LK 20 - 250 ) and never
+                 exceed the player's cash on hand (Rule-LK 22)*/
                 int isValidBid = 0;
                 if (bid >= currentBid + AUCTION_INCREMENT && bid <= gamestate -> players[i].cash) {
                     isValidBid = 1;
                 }
-
                 if (isValidBid == 1) {
                     currentBid = bid;
                     highestBidder = i;
@@ -409,11 +413,10 @@ void runAuction(GameState *gamestate, int squareIndex) {
                     printf("%s withdraws.\n", gamestate -> players[i].name);
                 }
             }
-
             i = i + 1;
         }
 
-        // 4) Count how many players are still standing.
+        //Count how many players are still standing for bidding 
         int remaining = 0;
         int j = 0;
         while (j < NUM_PLAYERS) {
@@ -422,7 +425,6 @@ void runAuction(GameState *gamestate, int squareIndex) {
             }
             j = j + 1;
         }
-
         if (remaining <= 1) {
             auctionOngoing = 0;
         }
@@ -431,7 +433,7 @@ void runAuction(GameState *gamestate, int squareIndex) {
         }
     }
 
-    // 5) Award the property, or leave it with the Bank if nobody ever bid (Rule-LK 23).
+    // Give the property, or leave it with the Bank if nobody ever bid(Rule-LK 23)
     if (highestBidder == -1) {
         printf("\nNo bids were placed. Ownership remains with the Bank.\n");
     } else {
@@ -441,7 +443,7 @@ void runAuction(GameState *gamestate, int squareIndex) {
     }
 }
 
-// Called once at the end of every round: interest, cards, market ticks.
+// Called once at the end of every round - interest, cards, market dynamics etc
 void endOfRoundProcessing(GameState *gamestate) {
     gamestate -> economy.round = gamestate -> economy.round + 1;
     applyLoanInterest(gamestate);        // finance.c
@@ -453,7 +455,7 @@ void endOfRoundProcessing(GameState *gamestate) {
     }
     if (gamestate -> economy.round % 15 == 0) {
         drawRegionalDevelopmentCard(gamestate);  // events.c
-        drawEconomicEvent(gamestate);            // events.c, Rule-LK 18
+        drawEconomicEvent(gamestate);            // events.c (Rule-LK 18)
     }
     if (gamestate -> economy.round % 20 == 0) {
         governmentRegulationChange(gamestate);   // events.c
@@ -467,7 +469,7 @@ void endOfRoundProcessing(GameState *gamestate) {
     displayMarketConditions(gamestate);  // events.c
 }
 
-// Section 5: prints every player's status at the end of each round.
+//Prints every player's status at the end of each round.
 void printRoundSummary(GameState *gamestate) {
 
     printf("=============================================\n");
@@ -478,7 +480,7 @@ void printRoundSummary(GameState *gamestate) {
     while (p < NUM_PLAYERS) {
         Player *player = &gamestate -> players[p];
 
-        // Count this player's properties and hotels by scanning the board.
+        // Count this player's properties and hotels
         int propertyCount = 0;
         int hotelCount = 0;
         int i = 0;
@@ -514,7 +516,7 @@ void printRoundSummary(GameState *gamestate) {
     printf("=============================================\n");
 }
 
-// Counts remaining solvent players; returns 1 if the game should stop.
+// Counts remaining  players returns 1 if the game should stop
 int isGameOver(GameState *gamestate) {
     int remainingPlayers = 0;
     for (int i = 0; i < NUM_PLAYERS; i++) {
@@ -550,18 +552,36 @@ int findWinner(GameState *gamestate) {
     return winner;
 }
 
-// Runs the whole simulation: setup, turn order, main loop, then the winner.
+/*Finds the fewest laps completed by any still remaining player - 
+ To know when a full round has finished*/
+int findSlowestLaps(GameState *gamestate) {
+    int slowestLaps = -1;
+    int k = 0;
+    while (k < NUM_PLAYERS) {
+        if (gamestate -> players[k].isBankrupt == 0) {
+            if (slowestLaps == -1 || gamestate -> players[k].lapsCompleted < slowestLaps) {
+                slowestLaps = gamestate -> players[k].lapsCompleted;
+            }
+        }
+        k = k + 1;
+    }
+    return slowestLaps;
+}
+
+// Runs the whole simulation: setup, turn order, main loop, then the winner
 void runGame(GameState *gamestate) {
     printf("MONOPOLY-LK Simulation\n\n");
 
     monopolyBoard(gamestate -> board);
     initializingPlayers(gamestate);
 
-    // ASSUMPTION: starts at Table 9's "Stable Economy" rate (8%), since
-    // no rule gives a starting number directly.
+    // assumed - The game starts at Table 9's "Stable Economy" rate (8%)
     gamestate -> economy.baseInterestRate = 8;
-    gamestate -> economy.currentIncomeTaxPercent = INCOME_TAX_STARTING_PERCENTAGE;
-    gamestate -> economy.communityFundTaxPercent = COMMUNITY_FUND_TAX_PERCENTAGE;
+    /* ASSUMPTION: no rule gives a starting inflation rate, so 0% (a valid
+    value from Rule-LK 12's own list) is used until the first inflationChange(). */
+    gamestate -> economy.inflationRate = 0;
+    gamestate -> economy.currentIncomeTaxPercentage = INCOME_TAX_STARTING_PERCENTAGE;
+    gamestate -> economy.communityFundTaxPercentage = COMMUNITY_FUND_TAX_PERCENTAGE;
 
     int turnOrder[NUM_PLAYERS];
     determineTurnOrder(gamestate, turnOrder);
@@ -573,24 +593,14 @@ void runGame(GameState *gamestate) {
         i = i + 1;
     }
 
-    // Main loop (Rule 15). A round completes once the player furthest
-    // behind on the board (fewest laps of GO) has passed GO.
+    /* Rule 15 - Rund completes once the player furthest
+     behind on the board (fewest laps of GO) has passed GO*/
     while (isGameOver(gamestate) == 0) {
         int p = 0;
         while (p < NUM_PLAYERS) {
             playTurn(gamestate, turnOrder[p]);
 
-            int slowestLaps = -1;
-            int k = 0;
-            while (k < NUM_PLAYERS) {
-                if (gamestate -> players[k].isBankrupt == 0) {
-                    if (slowestLaps == -1 || gamestate -> players[k].lapsCompleted < slowestLaps) {
-                        slowestLaps = gamestate -> players[k].lapsCompleted;
-                    }
-                }
-                k = k + 1;
-            }
-
+            int slowestLaps = findSlowestLaps(gamestate);
             if (slowestLaps > gamestate -> economy.round) {
                 endOfRoundProcessing(gamestate);
             }

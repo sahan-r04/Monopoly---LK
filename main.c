@@ -3,11 +3,12 @@
 #include <time.h>
 #include "types.h"
 
+// Program entry point
 int main(void) {
-    srand((unsigned int)time(NULL)); // seed once, only here
+    srand((unsigned int)time(NULL)); // Seed the random generator once, here only
 
-    GameState gamestate = {0}; // zero-initialize everything
-    runGame(&gamestate);
+    GameState gamestate = {0}; // Zero-initialize every field within the struct before use
+    runGame(&gamestate); // game.c runs the whole simulation from here.
 
     return 0;
 }

@@ -374,3 +374,68 @@ until unavoidable" rule against without inventing new state just for this.
 
 Files changed: types.h (rename), players.c (decideToMaintain(),
 decideLoanExtension()), game.c (call site renamed).
+
+
+17. runAuction()'s bid validation had corrupted parentheses, accepting
+    almost any bid and hanging the game
+------------------------------------------------------------------------------
+Source: Found while re-verifying the jail logic - a routine test run never
+finished, generating tens of millions of lines of output before being
+killed by a timeout.
+
+What was wrong: the bid check read
+`if ((bid >= currentBid + AUCTION_INCREMENT && bid) <= (gamestate ->
+players[i].cash))`. In C, `&&` evaluates to 0 or 1, so this actually
+compared a boolean to the player's cash instead of comparing the bid
+amount to their cash - meaning almost any bid (including a negative one,
+observed as "LKR -1" in the log) was accepted as valid. Since nearly every
+bid succeeded, the auction's "did anyone raise this pass" exit condition
+almost never triggered, so it never terminated naturally (Rule-LK 20/22
+were both silently broken).
+
+Fix: restored the intended logic -
+`bid >= currentBid + AUCTION_INCREMENT && bid <= gamestate ->
+players[i].cash`. Verified with multiple independent full-game runs under
+a hard timeout, all completing normally afterward.
+
+Files changed: game.c (runAuction()).
+
+
+18. decideConstruction() never checked whether the player could afford to
+    build, unlike every other spending decision in the codebase
+------------------------------------------------------------------------------
+Source: Found while investigating negative cash balances surfaced during
+the same verification pass as #17.
+
+What was wrong: decideToPurchase(), decideToMaintain(), decideMortgage(),
+decideRenovateDepreciation(), decideRenovateStructuralDamage(), and
+getInsurance() all check the player's cash before committing to a spend -
+decideConstruction() was the one exception, picking a square to build on
+purely by monopoly/room-to-build rules with no cash check at all. game.c
+then unconditionally deducted houseCost/hotelCost, which could and did
+push a player's cash negative.
+
+Fix: added the same kind of affordability check every other decide
+function already has - a square is only eligible to build on if its
+house/hotel cost is within the player's current cash.
+
+Files changed: players.c (decideConstruction()).
+
+
+19. The forced bail payment (3 failed turns in Jail) deducted BAIL_AMOUNT
+    unconditionally, without capping at available cash
+------------------------------------------------------------------------------
+Source: Found in the same negative-cash investigation as #18 - the
+remaining negative values were all exact multiples of BAIL_AMOUNT (300).
+
+What was wrong: every voluntary bail path in decideJailOrOut() already
+checks cash first, but the forced fallback in game.c ("after three turns
+imprisoned, the player must pay bail and leave") deducted BAIL_AMOUNT
+unconditionally - the one player who has no choice in the matter was also
+the one path with no cash cap, unlike payRent()/collectTax() elsewhere.
+
+Fix: capped the deduction at whatever cash the player actually has, same
+pattern as rent/tax elsewhere - the player leaves Jail either way (Rule
+13 doesn't make this optional), but never pays more than they have.
+
+Files changed: game.c (jail-check block in playTurn()).

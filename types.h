@@ -18,13 +18,14 @@
 #define DEPRECIATION_MAX_PERCENTAGE             30
 #define MAINTENANCE_NEGLECT_LIMIT               20
 #define BUILDING_DECAY_PERCENTAGE_PER_ROUND      2
-#define MARKET_BOOM_COOLDOWN_RONDS              30
+#define MARKET_BOOM_COOLDOWN_ROUNDS             30
 #define NATIONAL_CARD_DURATION_ROUNDS           15
 #define REGIONAL_CARD_DURATION_ROUNDS           15
 #define GOVERNMENT_REGULATION_DURATION_ROUNDS   20
 #define INCOME_TAX_STARTING_PERCENTAGE          15
 #define COMMUNITY_FUND_TAX_PERCENTAGE           10
-#define GROUP_COOLDOWN_ROUNDS                   30
+#define GROUP_COOLDOWN_ROUNDS                   30 /* Rule-LK 33: Boom effected groups can't be 
+                                                     selected for 30 rounds */
 
 typedef enum SquareType{
     SQUARE_START,
@@ -66,28 +67,30 @@ typedef enum InsuranceType {
     INSURANCE_BUSINESS_INTERRUPTION,
 } InsuranceType;
 
+/*Assumed repair cost percentages for each disaster type, 
+as a percentage of the property's current value*/
 typedef enum DisasterType {
-    DISASTER_FIRE,
-    DISASTER_FLOOD,
-    DISASTER_RIOT,
-    DISASTER_COLLAPSE,
-    DISASTER_ELECTRICAL,
+    DISASTER_FIRE, // 20%
+    DISASTER_FLOOD, // 15%
+    DISASTER_RIOT, // 10%
+    DISASTER_COLLAPSE, // 5%
+    DISASTER_ELECTRICAL, // 10%
 } DisasterType;
 
 typedef struct Square {
-    int squareIndex; // position 0-39 on the board
+    int squareIndex; // Position 0-39 on the board
     char name[MAX_NAME_LEN];
     SquareType type;
-    PropertyGroup group; // GROUP_NONE if not a property
+    PropertyGroup group; //GROUP_NONE if not a property
 
-    // static values
+    // Static values
     int purchasePrice;
     int baseRent;
     int houseCost;
     int hotelCost;
     int mortgageValue;
 
-    // dynamic values, change during play
+    // Dynamic values, change during the gameplay
     int currentValue;
     int currentRent;
 
@@ -96,23 +99,26 @@ typedef struct Square {
     int isMortgaged;
     int isLoanLocked;
 
-    // development (Rule 8,9,10)
+    // Development (Rule 8,9,10)
     int numHouses;
     int hasHotel;
 
     // condition and age
     int buildingCondition;
-    int propertyAge;
-    int depreciationPercent; // capped at DEPRECIATION_MAX_PERCENTAGE
+    int propertyAge; /* Rounds since last purchase, used for depreciation (Rule-LK 27)
+                        - properties older than 50 rounds get depreciated by 1% for 5 rounds,
+                          upto 30% max*/
+    int depreciationPercentage; //Capped at DEPRECIATION_MAX_PERCENTAGE
     int isDamaged;
-    int closedRoundsLeft; // Political Rally closure countdown
+    int closedRoundsLeft; // Political Rally closure countdown(2 max)
 
     // maintenance (Rule-LK 27-29)
     int roundsSinceMaintenance;
     int hasStructuralDamage;
-    int maintenanceCostPercent; // 100 = normal, 150 after structural damage
+    int maintenanceCostPercentage; /* 100 = normal, 105 = house, 108 = hotel,  
+                                        150 = after structural damage*/
 
-    // Anti-Speculation Act (Rule-LK 24)
+    // Anti-Speculation Act(Rule-LK 24)-5 rounds to develop after purchase, else development is blocked
     int developmentDeadlineRounds; // 0 = no deadline active
 
     // insurance
@@ -123,7 +129,8 @@ typedef struct Square {
 typedef struct ActiveEffect{
     int isActive;
     int effectId;
-    int cardId; // which card/regulation this is, for display (Rule-LK 36)
+    int cardId; /* Which card/regulation this is (deck index), then used to look
+                 up its name (Rule-LK 36) and to spot one specific card*/
     PropertyGroup targetGroup;
     int roundsRemaining;
 } ActiveEffect;
@@ -134,19 +141,18 @@ typedef struct Player {
 
     int cash;
     int position;
-    int lapsCompleted; // times passed GO, used for round counting (game.c)
+    int lapsCompleted; // Times passed GO - Used for counting rounds (game.c)
     int inJail;
     int jailTurns;
     int isBankrupt;
-
-    //a player may have at most 1 active loan (Rule-LK 1)
+    //A player may have at most 1 active loan (Rule-LK 1)
     int hasLoan;
     int loanAmount;
     int loanInterestRate;
     int loanRoundsLeft;
-    int loanCollateral[BOARD_SIZE]; // squares pledged to this loan
+    int loanCollateral[BOARD_SIZE]; // Squares pledged to this loan
 
-    ActiveEffect nationalCard; // Appendix A card currently affecting this player
+    ActiveEffect nationalCard; // National event card currently affecting this player
 } Player;
 
 typedef struct Economy{
@@ -154,26 +160,26 @@ typedef struct Economy{
     int inflationRate;
     int baseInterestRate;
 
-    ActiveEffect regionalCard; // Section 2.10
-    ActiveEffect governmentRegulation; // Section 2.7- effectId = regulation index
+    ActiveEffect regionalCard; // Regional Development Card currently affecting the economy
+    ActiveEffect governmentRegulation; //effectId = regulation index
     ActiveEffect marketBoom;
     ActiveEffect marketDecline;
 
-    //Rule-LK 33: avoid repeating the same group too soon
+    //Rule-LK 33: Avoid repeating the same group too soon for events
     PropertyGroup lastBoomGroup;
     PropertyGroup lastDeclineGroup;
     int groupCooldownRounds[9]; // index 1-8 = PropertyGroup
 
-    // fields the various cards/regulations write into
-    int currentIncomeTaxPercent;   // % of cash charged on Income Tax (Rule 11)
-    int communityFundTaxPercent;   // % of property value charged on CDF
-    int insurancePremiumDiscountPercent;
+    // fields the various cards/regulations
+    int currentIncomeTaxPercentage;   // % of cash charged on Income Tax(Rule 11)
+    int communityFundTaxPercentage;   // % of property value charged on Community Development Fund
+    int insurancePremiumDiscountPercentage;
     int constructionSuspendedRoundsLeft;
     int antiSpeculationActive;
 } Economy;
 
 typedef struct NationalEventCard {
-    int cardId; // fixed ID, stays with the card as the deck reorders
+    int cardId; // fixed ID, won't change with the card as the deck reorders
     char name[40];
     int cashBonus;
     int rentMultiplierPercentage;
@@ -196,8 +202,8 @@ typedef struct GameState{
     Economy economy;
 } GameState;
 
-// Prototypes for functions called across files, grouped by the file that
-// defines each one.
+/* Prototypes for functions called across files, grouped by the file that
+defines each one. */
 
 // ---- board.c ----
 void monopolyBoard(Square board[BOARD_SIZE]);
@@ -220,6 +226,11 @@ void collectTax(GameState *gamestate, int playerIndex);
 void applyCommunityDevelopmentFundTax(GameState *gamestate, int playerIndex);
 int calculateNetWorth(GameState *gamestate, int playerIndex);
 void checkBankruptcy(GameState *gamestate);
+void depreciateProperties(GameState *gamestate);
+void decayBuildingCondition(GameState *gamestate);
+void countdownInsurance(GameState *gamestate);
+void calculateRecurringLuxuryTax(GameState *gamestate);
+void decrementGroupCooldowns(GameState *gamestate);
 void retryDamageRepairs(GameState *gamestate);
 void runFinanceUpdates(GameState *gamestate);
 void doMaintenance(GameState *gamestate, int playerIndex, int squareIndex);
@@ -268,6 +279,7 @@ void endOfRoundProcessing(GameState *gamestate);
 void printRoundSummary(GameState *gamestate);
 int isGameOver(GameState *gamestate);
 int findWinner(GameState *gamestate);
+int findSlowestLaps(GameState *gamestate);
 void runGame(GameState *gamestate);
 
 #endif
