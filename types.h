@@ -229,7 +229,7 @@ void checkBankruptcy(GameState *gamestate);
 void depreciateProperties(GameState *gamestate);
 void decayBuildingCondition(GameState *gamestate);
 void countdownInsurance(GameState *gamestate);
-void calculateRecurringLuxuryTax(GameState *gamestate);
+void applyRecurringLuxuryTax(GameState *gamestate);
 void decrementGroupCooldowns(GameState *gamestate);
 void retryDamageRepairs(GameState *gamestate);
 void runFinanceUpdates(GameState *gamestate);
